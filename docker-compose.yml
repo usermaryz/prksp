@@ -1,0 +1,24 @@
+services:
+  api:
+    build: ./backend_fastapi
+    ports:
+      - "8000:8000"
+    environment:
+      SECRET_KEY: ${SECRET_KEY:-demo-not-for-prod}
+      DB_URL: sqlite:///data/prksp.db
+    volumes:
+      - prksp-db:/app/data
+
+  web:
+    build:
+      context: ./wms_site
+      dockerfile: Dockerfile
+      args:
+        REACT_APP_API_URL: ${REACT_APP_API_URL:-http://localhost:8000/api}
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+
+volumes:
+  prksp-db:
