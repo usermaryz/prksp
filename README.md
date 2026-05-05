@@ -46,7 +46,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 Переменные окружения (необязательно): `SECRET_KEY`, `DB_URL` (по умолчанию SQLite в `backend_fastapi/data/`).
 
-Оставь этот терминал открытым. Backend будет работать на `http://localhost:8000`.
+Оставьте этот терминал открытым. Backend будет работать на `http://localhost:8000`. Быстрая проверка: `curl -s http://127.0.0.1:8000/health`.
 
 ### Frontend (во втором терминале)
 
