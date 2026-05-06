@@ -22,7 +22,12 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="PRKSP WMS API", version="0.1", lifespan=lifespan)
+app = FastAPI(
+    title="PRKSP WMS API",
+    version="0.1",
+    description="Учебный REST-слой мини-WMS: заказы, склад, сборка, логистика.",
+    lifespan=lifespan,
+)
 
 app.add_middleware(
     CORSMiddleware,
