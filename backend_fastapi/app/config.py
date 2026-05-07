@@ -3,6 +3,7 @@ from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+# Каталог для SQLite и прочих файлов данных (создаётся при старте приложения).
 DATA_DIR = BASE_DIR / "data"
 
 
