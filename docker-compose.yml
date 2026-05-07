@@ -1,3 +1,4 @@
+# Сервисы: API (FastAPI) и статический фронт за nginx.
 services:
   api:
     build: ./backend_fastapi
