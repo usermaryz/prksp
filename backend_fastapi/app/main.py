@@ -29,6 +29,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Разрешённые источники для dev (webpack :3000 и dockerized web :8080).
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
