@@ -3,6 +3,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+# Схемы запросов/ответов для аутентификации и регистрации.
+
 
 class TokenOut(BaseModel):
     access_token: str
