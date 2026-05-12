@@ -58,7 +58,9 @@ def request_json(
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description="Фуззинг API без внешних зависимостей (stdlib).")
+    p = argparse.ArgumentParser(
+        description="Фуззинг API (только stdlib): случайные запросы, проверка на отсутствие 5xx.",
+    )
     p.add_argument("--base", default="http://127.0.0.1:8000", help="База URL без финального /")
     p.add_argument("--token", default="", help="JWT access (если пусто — логин admin/admin)")
     p.add_argument("--rounds", type=int, default=60, help="Число случайных GET-запросов")
