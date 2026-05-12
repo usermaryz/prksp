@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.config import DATA_DIR
+from app.config import DATA_DIR, settings
 from app.database import SessionLocal, engine
 from app.models import Base
 from app.routers import auth, dashboard, inventory, logistics, orders, picking, products
@@ -29,15 +29,18 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Разрешённые источники для dev (webpack :3000 и dockerized web :8080).
+_default_cors = [
+    "http://127.0.0.1:3000",
+    "http://localhost:3000",
+    "http://127.0.0.1:8080",
+    "http://localhost:8080",
+]
+_extra = [o.strip() for o in settings.cors_extra_origins.split(",") if o.strip()]
+_cors_origins = _default_cors + _extra
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://127.0.0.1:3000",
-        "http://localhost:3000",
-        "http://127.0.0.1:8080",
-        "http://localhost:8080",
-    ],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

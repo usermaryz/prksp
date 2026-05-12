@@ -16,5 +16,8 @@ class Settings(BaseSettings):
 
     db_url: str = f"sqlite:///{DATA_DIR.resolve()}/prksp.db"
 
+    # Дополнительные origin для CORS (через запятую), например https://app.onrender.com
+    cors_extra_origins: str = ""
+
 
 settings = Settings()

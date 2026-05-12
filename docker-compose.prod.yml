@@ -1,0 +1,36 @@
+# Production-like стек на одном хосте: браузер ходит только на :80,
+# nginx в сервисе web проксирует /api на внутренний сервис api.
+# Сборка фронта с REACT_APP_API_URL=/api — запросы с того же origin.
+#
+# Запуск на VPS:
+#   export SECRET_KEY="$(openssl rand -hex 32)"
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Открыть в браузере: http://<IP-сервера>/  (порт 80).
+
+services:
+  api:
+    build: ./backend_fastapi
+    expose:
+      - "8000"
+    environment:
+      SECRET_KEY: ${SECRET_KEY:?Задайте SECRET_KEY}
+      DB_URL: sqlite:///data/prksp.db
+    volumes:
+      - prksp-db:/app/data
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./wms_site
+      dockerfile: Dockerfile
+      args:
+        REACT_APP_API_URL: /api
+    ports:
+      - "80:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  prksp-db:

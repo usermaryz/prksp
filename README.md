@@ -68,6 +68,8 @@ URL API на этапе сборки задаётся переменной **`RE
 docker compose up --build
 ```
 
+Для **одного хоста в облаке** (веб на порту 80, API за nginx по пути `/api`) см. **`docker-compose.prod.yml`** и подробности в **`docs/cloud-deploy.md`** (в т.ч. деплой на **Render** по `render.yaml`).
+
 - Frontend: `http://localhost:8080`
 - API: `http://localhost:8000`  
 При сборке веба можно переопределить `REACT_APP_API_URL`, если API доступен по другому адресу с точки зрения браузера.
