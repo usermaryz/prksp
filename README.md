@@ -1,105 +1,170 @@
-# PRKSP
+# PRKSP — мини-WMS для курсовой
 
-Учебный fullstack-проект «мини-WMS»: React (клиент) + FastAPI + SQLite. В репозитории есть Docker, тестовые данные при первом старте и черновики текстов под курсовую (в `docs/`). Сам отчёт по ГОСТ 7.32-2017 здесь не вкладывался — только исходники и вспомогательные материалы.
+Учебный fullstack: веб-интерфейс (React) + REST API (FastAPI) + SQLite. После первого запуска в базе появляются демо-пользователи, товары и заказы — можно сразу кликать по интерфейсу, не заполняя всё вручную.
 
-## Структура
 
-| Папка | Назначение |
-|--------|------------|
-| `wms_site/` | Frontend, Webpack dev server |
-| `backend_fastapi/` | REST API, модели SQLAlchemy, сиды |
-| `docs/` | Предметная область, технологии, UML (Mermaid), облако, план презентации |
-| `tools/fuzz_api.py` | Простой скрипт фаззинга API (ищет необработанные 5xx) |
 
-## Демо-доступы (после сида БД)
 
-Логин задаётся парой **логин / пароль**:
 
-- `admin` / `admin`
-- `manager` / `manager`
-- `picker` / `picker`
-- `driver` / `driver`
 
-Роли отличаются по правам (например, сборщик не может самовольно перевести заказ в «отправлен» — сервер ответит `403`).
+---
 
-## Как запустить проект
+## Что внутри репозитория
 
-Ниже 2 варианта: обычный локальный запуск и запуск через Docker.
+| Папка / файл | Зачем |
+|--------------|--------|
+| `backend_fastapi/` | API, модели, JWT, сиды |
+| `wms_site/` | фронт (Webpack + Cypress) |
+| `docker-compose.yml` | локальный запуск в двух контейнерах |
+| `docker-compose.prod.yml` | один хост: веб на :80, API за nginx по `/api` |
+| `render.yaml` | blueprint для деплоя на Render |
+| `tools/fuzz_api.py` | проверка API на «падения» (ответы 5xx) |
+| `docs/` | материалы к курсовой, в т.ч. `cloud-deploy.md` |
 
-## Вариант 1: локально (без Docker)
+---
 
-### Шаг 0. Перейти в проект
+## Что поставить на машину
 
-```bash
-cd /Users/mary/Desktop/kursach_august/prksp
-```
+- **Python 3.11+** — backend и фаззинг  
+- **Node.js 18+** и **npm** — фронт и Cypress  
+- **Docker** (по желанию) — если не хотите возиться с venv локально  
 
-### Backend
+---
+
+## Быстрый старт (локально, два терминала)
+
+Удобнее всего для разработки и для **всех тестов**, кроме component Cypress.
+
+**Терминал 1 — API**
 
 ```bash
 cd backend_fastapi
 python3 -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
+source .venv/bin/activate    # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-Переменные окружения (необязательно): `SECRET_KEY`, `DB_URL` (по умолчанию SQLite в `backend_fastapi/data/`).
+Проверка: `curl http://127.0.0.1:8000/health` → `{"status":"ok"}`.
 
-Оставьте этот терминал открытым. Backend будет работать на `http://localhost:8000`. Быстрая проверка: `curl -s http://127.0.0.1:8000/health`.
-
-### Frontend (во втором терминале)
+**Терминал 2 — интерфейс**
 
 ```bash
-cd /Users/mary/Desktop/kursach_august/prksp
 cd wms_site
 npm install
 npm start
 ```
 
-Адрес интерфейса: `http://localhost:3000`, API: `http://localhost:8000`.  
-URL API на этапе сборки задаётся переменной **`REACT_APP_API_URL`** (см. `webpack.config.js`).
+Открыть **http://localhost:3000**. Войти, например: **admin** / **admin**.
 
-## Вариант 2: через Docker Compose
+Другие роли после сида: `manager` / `manager`, `picker` / `picker`, `driver` / `driver`. У ролей разные права — часть кнопок на API ответит `403`, это нормально.
 
-Из корня `prksp`:
+---
+
+## Запуск через Docker
+
+Из **корня** репозитория (где лежит `docker-compose.yml`):
 
 ```bash
 docker compose up --build
 ```
 
-Для **одного хоста в облаке** (веб на порту 80, API за nginx по пути `/api`) см. **`docker-compose.prod.yml`** и подробности в **`docs/cloud-deploy.md`** (в т.ч. деплой на **Render** по `render.yaml`).
+- интерфейс: **http://localhost:8080**  
+- API: **http://localhost:8000**  
 
-- Frontend: `http://localhost:8080`
-- API: `http://localhost:8000`  
-При сборке веба можно переопределить `REACT_APP_API_URL`, если API доступен по другому адресу с точки зрения браузера.
-- Проверка nginx: `curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/` (ожидается `200`).
+Остановить: `docker compose down`. Данные SQLite в Docker хранятся в томе `prksp-db` и не пропадают после `down`, пока том явно не удалить.
 
-Остановить контейнеры:
+**На VPS / для «продакшн-подобного» варианта** (один порт 80, API проксируется nginx):
 
 ```bash
-docker compose down
+export SECRET_KEY="$(openssl rand -hex 32)"
+docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-## Фаззинг-тестирование
+Подробнее про облако (Render, переменные) — **`docs/cloud-deploy.md`**.
 
-Поднять backend, затем в другом терминале:
+---
+
+## Тестирование
+
+Логика такая: сначала поднимаете то, что нужно конкретному виду теста, потом одна команда из `wms_site` или из корня.
+
+### Сводка
+
+| Что проверяем | Команда | Что должно быть запущено |
+|---------------|---------|---------------------------|
+| UI в браузере (E2E) | `npm run test:e2e` | API на :8000 **и** фронт на :3000 |
+| Кнопки, поля, таблица (component) | `npm run test:component` | только Node (Cypress сам поднимет webpack) |
+| Устойчивость API (фаззинг) | `python3 tools/fuzz_api.py …` | только API на :8000 |
+
+Интерактивный режим Cypress (удобно при отладке): `npm run test:e2e:open` и `npm run test:component:open`.
+
+---
+
+### Cypress: end-to-end
+
+Проверяются сценарии «как пользователь»: вход, список заказов, фильтры, модалка создания заказа. Спеки в `wms_site/cypress/e2e/` (`auth.cy.ts`, `orders.cy.ts`).
+
+**Порядок действий**
+
+1. В первом терминале — API (см. выше).  
+2. Во втором — `cd wms_site && npm start` (порт **3000**).  
+3. В третьем:
+
+```bash
+cd wms_site
+npm run test:e2e
+```
+
+Ожидаемый результат в конце: `All specs passed` (6 тестов в двух файлах).
+
+---
+
+### Cypress: component-тесты
+
+Изолированно монтируются общие компоненты (`Button`, `Input`, `Table`) — файлы `*.cy.tsx` рядом с компонентами в `wms_site/src/components/common/`.
+
+API и `npm start` **не нужны**:
+
+```bash
+cd wms_site
+npm install   # если ещё не ставили зависимости
+npm run test:component
+```
+
+Ожидаемо: **20** проходящих тестов в трёх спеках.
+
+---
+
+### Фаззинг API
+
+Скрипт шлёт на API случайные и заведомо кривые запросы (параметры, JSON, токены). Успех прогона — **ни одного ответа 5xx**; `401`, `422` и т.п. допустимы.
+
+Из **корня** репозитория, пока API слушает :8000:
 
 ```bash
 python3 tools/fuzz_api.py --base http://127.0.0.1:8000 --rounds 60
 ```
 
-Скрипт гоняет случайные параметры и регистрации с «ломаными» ролями. Ожидаемые ответы — в основном `401/403/422`, но не `500`. Лог можно сохранить в файл и включить как иллюстрацию в записку. Перед прогоном убедитесь, что API уже поднят.
+Сохранить отчёт для записки:
 
-## Соответствие требованиям (что закрывает репозиторий)
+```bash
+python3 tools/fuzz_api.py --base http://127.0.0.1:8000 --rounds 100 --json-log fuzz_report.json
+```
 
-1. Анализ предметной области — `docs/predmetnaya-oblast.md`.
-2. Обоснование стека — `docs/tehnologii.md`.
-3. Архитектура и UML-заготовки — `docs/uml.md` (+ экспорт в draw.io при необходимости).
-4. Серверная логика и REST — код в `backend_fastapi/app/` (JWT, роли, бизнес-правила отправлений и сборки).
-5. Логика уровня БД — модели и SQLite.
-6. Клиентский слой — `wms_site/src/`.
-7. Презентация — каркас слайдов `docs/prezentatsiya.md`.
-8. Отчёт по ГОСТ — не входит в репозиторий (оформляется отдельно).
+Повторяемость: флаг `--seed 42`.
 
-Дополнительно: Dockerfile’ы, `docker-compose.yml`, раздел про облако в `docs/cloud-deploy.md`.
+---
+
+### Если что-то упало
+
+| Ситуация | Что проверить |
+|----------|----------------|
+| E2E не находит поля на `/login` | фронт на :3000, API на :8000; не закрыли терминалы |
+| E2E таймаут на логине | API не поднят или неверный `REACT_APP_API_URL` |
+| `Address already in use` :8000 | остановить старый `uvicorn` или сменить порт |
+| Docker: `web` падает с nginx upstream | в `wms_site/nginx.conf` хост прокси — **`api`**, как в `docker-compose.yml` |
+| Фаззинг сразу «сервер недоступен» | сначала `curl …/health` |
+| Component-тесты | достаточно `npm install` в `wms_site` |
+
+Скриншоты упавших E2E Cypress кладёт в `wms_site/cypress/screenshots/` — в git они не нужны (см. `wms_site/.gitignore`).
