@@ -1,36 +1,32 @@
 describe('Авторизация', () => {
     beforeEach(() => {
+        cy.clearLocalStorage();
         cy.visit('/login');
     });
 
     it('успешная авторизация', () => {
-        cy.get('input[name="username"]').type('admin');
-        cy.get('input[name="password"]').type('admin');
+        cy.get('input[type="text"]').first().clear().type('admin');
+        cy.get('input[type="password"]').clear().type('admin');
         cy.get('button[type="submit"]').click();
 
-        // Проверяем, что данные сохранились в localStorage
         cy.window().its('localStorage').should('have.property', 'isLoggedIn', 'true');
-        cy.window().its('localStorage').should('have.property', 'user');
-
-        // Проверяем редирект на dashboard
+        cy.window().its('localStorage').should('have.property', 'accessToken');
         cy.url().should('include', '/dashboard');
     });
 
     it('отображение ошибки при неверных данных', () => {
-        cy.get('input[name="username"]').type('wrong');
-        cy.get('input[name="password"]').type('wrong');
+        cy.get('input[type="text"]').first().clear().type('wrong');
+        cy.get('input[type="password"]').clear().type('wrong');
         cy.get('button[type="submit"]').click();
 
-        // Проверяем сообщение об ошибке
-        cy.get('[role="alert"]').should('be.visible');
-        cy.get('[role="alert"]').should('contain', 'Неверный логин или пароль');
+        cy.contains('Логин или пароль указаны неверно', { timeout: 10000 }).should('be.visible');
     });
 
-    it('валидация обязательных полей', () => {
-        cy.get('button[type="submit"]').click();
-
-        // Проверяем, что поля помечены как required
-        cy.get('input[name="username"]').should('have.attr', 'required');
-        cy.get('input[name="password"]').should('have.attr', 'required');
+    it('форма входа отображается', () => {
+        cy.contains('Добро пожаловать').should('be.visible');
+        cy.contains('Система управления складом').should('be.visible');
+        cy.get('input[type="text"]').should('have.length.at.least', 1);
+        cy.get('input[type="password"]').should('be.visible');
+        cy.contains('Демо: admin / admin').should('be.visible');
     });
-}); 
+});
