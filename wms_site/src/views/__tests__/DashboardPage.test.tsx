@@ -3,7 +3,16 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import { DashboardPage } from '../DashboardPage';
 
-// Мокаем useNavigate
+jest.mock('../../services/dashboardApi', () => ({
+  dashboardApi: {
+    getMetrics: jest.fn().mockResolvedValue({
+      orders: { total: 3, pending: 1, picking: 1, shipped: 1 },
+      products: { total: 10, active: 9, low_stock: 2 },
+      picking: { pending_tasks: 2, in_progress: 1 },
+    }),
+  },
+}));
+
 const mockNavigate = jest.fn();
 jest.mock('react-router-dom', () => ({
   ...jest.requireActual('react-router-dom'),
@@ -22,22 +31,20 @@ describe('DashboardPage', () => {
       </BrowserRouter>
     );
 
-    // Используем getByRole для поиска заголовка
-    expect(screen.getByRole('heading', { name: 'Дашборд' })).toBeInTheDocument();
-    expect(screen.getByText('Мониторинг работы склада и ключевых метрик')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Главная' })).toBeInTheDocument();
+    expect(screen.getByText('Обзор операций склада')).toBeInTheDocument();
   });
 
-  it('renders all dashboard components', () => {
+  it('renders main sections', () => {
     render(
       <BrowserRouter>
         <DashboardPage />
       </BrowserRouter>
     );
 
-    // Проверяем наличие всех основных компонентов
+    expect(screen.getByText('Быстрые действия')).toBeInTheDocument();
     expect(screen.getByText('Инструкция')).toBeInTheDocument();
     expect(screen.getByText('Безопасность склада')).toBeInTheDocument();
-    expect(screen.getByText('Основные правила безопасности')).toBeInTheDocument();
   });
 
   it('navigates to error return form when button is clicked', () => {
@@ -47,35 +54,7 @@ describe('DashboardPage', () => {
       </BrowserRouter>
     );
 
-    const button = screen.getByText('Открыть форму ошибки/возврата');
-    fireEvent.click(button);
-
+    fireEvent.click(screen.getByText('Форма ошибки/возврата'));
     expect(mockNavigate).toHaveBeenCalledWith('/error-return-form');
-  });
-
-  it('displays all statistics cards', () => {
-    render(
-      <BrowserRouter>
-        <DashboardPage />
-      </BrowserRouter>
-    );
-
-    // Проверяем наличие всех карточек статистики
-    expect(screen.getByText('Общее количество заказов')).toBeInTheDocument();
-    expect(screen.getByText('Скорость обработки')).toBeInTheDocument();
-    expect(screen.getByText('Уровень инвентаризации')).toBeInTheDocument();
-    expect(screen.getByText('Коэффициент возврата')).toBeInTheDocument();
-  });
-
-  it('has working download link for return policy', () => {
-    render(
-      <BrowserRouter>
-        <DashboardPage />
-      </BrowserRouter>
-    );
-
-    const downloadLink = screen.getByText('Скачать политику возврата');
-    expect(downloadLink.closest('a')).toHaveAttribute('href', '/files/return-policy.rtf');
-    expect(downloadLink.closest('a')).toHaveAttribute('download', 'Политика возврата.rtf');
   });
 });

@@ -449,7 +449,7 @@ export const SHIPMENT_STATUS_COLORS: Record<ShipmentStatus, string> = {
     created: 'bg-gray-500',
     pending_pickup: 'bg-yellow-500',
     picked_up: 'bg-blue-500',
-    in_transit: 'bg-indigo-500',
+    in_transit: 'bg-slate-1000',
     out_for_delivery: 'bg-purple-500',
     delivered: 'bg-green-500',
     failed: 'bg-red-500',

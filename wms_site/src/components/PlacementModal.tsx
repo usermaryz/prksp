@@ -44,7 +44,7 @@ const PlacementModal: React.FC<Props> = observer(({ vm, onConfirm, onClose }) =>
               </button>
               <button
                 onClick={() => vm.scanProduct()}
-                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700"
+                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-slate-900 hover:bg-slate-800"
               >
                 Сканировать
               </button>
@@ -180,7 +180,7 @@ const PlacementModal: React.FC<Props> = observer(({ vm, onConfirm, onClose }) =>
                       id="quantity"
                       value={vm.quantity}
                       onChange={e => vm.setQuantity(e.target.value)}
-                      className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md"
+                      className="shadow-sm focus:ring-slate-900 focus:border-slate-900 block w-full sm:text-sm border-gray-300 rounded-md"
                     />
                   </div>
                 </div>
@@ -194,7 +194,7 @@ const PlacementModal: React.FC<Props> = observer(({ vm, onConfirm, onClose }) =>
                         type="radio"
                         checked={vm.storageType === 'Box'}
                         onChange={() => vm.setStorageType('Box')}
-                        className="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300"
+                        className="focus:ring-slate-900 h-4 w-4 text-slate-700 border-gray-300"
                       />
                       <label htmlFor="box" className="ml-2 block text-sm font-medium text-gray-700">
                         Коробка
@@ -207,7 +207,7 @@ const PlacementModal: React.FC<Props> = observer(({ vm, onConfirm, onClose }) =>
                         type="radio"
                         checked={vm.storageType === 'Pallet'}
                         onChange={() => vm.setStorageType('Pallet')}
-                        className="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300"
+                        className="focus:ring-slate-900 h-4 w-4 text-slate-700 border-gray-300"
                       />
                       <label htmlFor="pallet" className="ml-2 block text-sm font-medium text-gray-700">
                         Палета
@@ -226,7 +226,7 @@ const PlacementModal: React.FC<Props> = observer(({ vm, onConfirm, onClose }) =>
                     rows={3}
                     value={vm.notes}
                     onChange={e => vm.setNotes(e.target.value)}
-                    className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md"
+                    className="shadow-sm focus:ring-slate-900 focus:border-slate-900 block w-full sm:text-sm border-gray-300 rounded-md"
                     placeholder="Добавьте инструкции или примечания к размещению"
                   ></textarea>
                 </div>
@@ -235,14 +235,14 @@ const PlacementModal: React.FC<Props> = observer(({ vm, onConfirm, onClose }) =>
                 <button
                   type="button"
                   onClick={onClose}
-                  className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 cursor-pointer"
+                  className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-900 cursor-pointer"
                 >
                   <i className="fas fa-times mr-2"></i>
                   Очистить форму
                 </button>
                 <button
                   type="submit"
-                  className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 cursor-pointer"
+                  className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-slate-900 hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-900 cursor-pointer"
                 >
                   <i className="fas fa-check mr-2"></i>
                   Подтвердить размещение

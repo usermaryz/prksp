@@ -172,7 +172,7 @@ export const orderApi = {
    */
   async updateOrderStatus(id: number, status: OrderStatus): Promise<Order> {
     try {
-      const response = await api.patch<Order>(`/orders/${id}/status?status=${status}`);
+      const response = await api.patch<Order>(`/orders/${id}/status`, { status });
       return response.data;
     } catch (error) {
       throw handleApiError(error);

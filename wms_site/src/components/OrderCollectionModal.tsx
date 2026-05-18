@@ -61,7 +61,7 @@ const OrderCollectionModal: React.FC<Props> = observer(({ order, onClose }) => {
                           value={scannedBarcodes[item.name] || ''}
                           onChange={e => handleBarcodeScan(item.name, e.target.value)}
                           placeholder="Введите штрих-код"
-                          className="px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          className="px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-slate-900"
                         />
                         {scannedBarcodes[item.name] && (
                           <i className="fas fa-check text-green-500"></i>
@@ -78,7 +78,7 @@ const OrderCollectionModal: React.FC<Props> = observer(({ order, onClose }) => {
           {!isCollecting ? (
             <button
               onClick={handleStartCollection}
-              className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700"
+              className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-slate-900 hover:bg-slate-800"
             >
               <i className="fas fa-play mr-2"></i>
               Начать собирать товар

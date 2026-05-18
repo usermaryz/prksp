@@ -32,8 +32,9 @@ export interface PickingTask {
   assigned_to?: number;
   assigned_to_name?: string;
   items: PickingItem[];
-  total_items: number;
-  picked_items: number;
+  items_count?: number;
+  total_items?: number;
+  picked_items?: number;
   progress: number;
   started_at?: string;
   completed_at?: string;

@@ -1,70 +1,57 @@
-import { makeAutoObservable } from 'mobx';
+import { makeAutoObservable, runInAction } from 'mobx';
 import { OrderCollection } from '../models/OrderCollectionModel';
+import { pickingApi, PickingTask } from '../services/pickingApi';
+
+function mapTaskToCollection(task: PickingTask): OrderCollection {
+  const statusMap: Record<string, OrderCollection['status']> = {
+    pending: 'Pending Collection',
+    assigned: 'Pending Collection',
+    in_progress: 'In Progress',
+    completed: 'Completed',
+    cancelled: 'Completed',
+  };
+  return {
+    id: task.order_number,
+    customerName: task.assigned_to_name || 'Клиент',
+    customerEmail: '',
+    items: [{ name: `Заказ #${task.order_id}`, quantity: task.items_count || 1 }],
+    location: `Задача ${task.id}`,
+    status: statusMap[task.status] || 'Pending Collection',
+  };
+}
 
 export class OrderCollectionViewModel {
   search = '';
   statusFilter: string = 'All Statuses';
   showModal = false;
   selectedOrder: OrderCollection | null = null;
-
-  orders: OrderCollection[] = [
-    {
-      id: 'ORD-2505-1234',
-      customerName: 'Марк Кучер',
-      customerEmail: 'mark.kucher@wms.com',
-      items: [
-        { name: 'Беспроводные наушники', quantity: 1 },
-        { name: 'Смартфонный чехол', quantity: 1 },
-      ],
-      location: 'Зона A - Полка 12',
-      status: 'In Progress',
-    },
-    {
-      id: 'ORD-2505-1235',
-      customerName: 'Ева Джонсон',
-      customerEmail: 'emma.j@example.com',
-      items: [
-        { name: 'Беговые кроссовки', quantity: 1 },
-        { name: 'Фитнес-трекер', quantity: 1 },
-        { name: 'Вода', quantity: 1 },
-      ],
-      location: 'Зона B - Полка 5',
-      status: 'In Progress',
-    },
-    {
-      id: 'ORD-2505-1236',
-      customerName: 'Михаил Чен',
-      customerEmail: 'michael.c@example.com',
-      items: [{ name: 'Ноутбучный рюкзак', quantity: 1 }],
-      location: 'Зона A - Полка 8',
-      status: 'Pending Collection',
-    },
-    {
-      id: 'ORD-2505-1237',
-      customerName: 'Сара Уильямс',
-      customerEmail: 'sarah.w@example.com',
-      items: [
-        { name: 'Беспроводная мышь', quantity: 1 },
-        { name: 'USB-C кабель', quantity: 1 },
-      ],
-      location: 'Зона C - Полка 3',
-      status: 'Pending Collection',
-    },
-    {
-      id: 'ORD-2505-1238',
-      customerName: 'Давид Гарсия',
-      customerEmail: 'david.g@example.com',
-      items: [
-        { name: 'Белковый порошок', quantity: 1 },
-        { name: 'Шейкер бутылка', quantity: 1 },
-      ],
-      location: 'Зона B - Полка 11',
-      status: 'Completed',
-    },
-  ];
+  orders: OrderCollection[] = [];
+  loading = false;
+  error: string | null = null;
 
   constructor() {
     makeAutoObservable(this);
+    void this.loadOrders();
+  }
+
+  async loadOrders() {
+    this.loading = true;
+    this.error = null;
+    try {
+      const tasks = await pickingApi.getTasks();
+      runInAction(() => {
+        this.orders = tasks.map(mapTaskToCollection);
+      });
+    } catch (e) {
+      runInAction(() => {
+        this.error = 'Ошибка загрузки заданий сборки';
+        console.error(e);
+      });
+    } finally {
+      runInAction(() => {
+        this.loading = false;
+      });
+    }
   }
 
   get filteredOrders() {
@@ -78,23 +65,25 @@ export class OrderCollectionViewModel {
         o =>
           o.id.toLowerCase().includes(s) ||
           o.customerName.toLowerCase().includes(s) ||
-          o.customerEmail.toLowerCase().includes(s) ||
-          o.items.some(i => i.name.toLowerCase().includes(s))
+          o.location.toLowerCase().includes(s)
       );
     }
     return filtered;
   }
 
-  setSearch(val: string) {
-    this.search = val;
+  setSearch(value: string) {
+    this.search = value;
   }
-  setStatusFilter(val: string) {
-    this.statusFilter = val;
+
+  setStatusFilter(value: string) {
+    this.statusFilter = value;
   }
+
   openModal(order: OrderCollection) {
     this.selectedOrder = order;
     this.showModal = true;
   }
+
   closeModal() {
     this.showModal = false;
     this.selectedOrder = null;

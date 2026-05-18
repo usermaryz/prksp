@@ -1,15 +1,6 @@
-import axios from 'axios';
-import { API_BASE_URL, API_TIMEOUT } from '../config/api';
+import { productApi } from './productApi';
+import { inventoryApi } from './inventoryApi';
 
-const api = axios.create({
-  baseURL: API_BASE_URL,
-  timeout: API_TIMEOUT,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-});
-
-// Интерфейс для продукта
 export interface Product {
   id: number;
   barcode: string;
@@ -24,7 +15,6 @@ export interface Product {
   containerBarcode?: string;
 }
 
-// Интерфейс для зоны размещения
 export interface PlacementZone {
   id: number;
   name: string;
@@ -33,149 +23,94 @@ export interface PlacementZone {
   status: 'available' | 'full' | 'maintenance';
 }
 
-// Моковые данные для продуктов
-const mockProducts: Product[] = [
-  {
-    id: 1,
-    barcode: 'PRD12345',
-    name: 'Беспроводные наушники',
-    brand: 'SoundCore',
-    country: 'Китай',
-    category: 'Electronics',
-    image:
-      'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=400&q=80',
+function mapProduct(p: {
+  id: number;
+  sku: string;
+  barcode?: string;
+  name: string;
+  stock?: number;
+  location?: string | null;
+}): Product {
+  return {
+    id: p.id,
+    barcode: p.barcode || p.sku,
+    name: p.name,
+    brand: '',
+    country: '',
+    category: '',
+    image: '',
     status: 'pending',
-  },
-  {
-    id: 2,
-    barcode: 'PRD23456',
-    name: 'Белковый порошок',
-    brand: 'OptimumNutrition',
-    country: 'США',
-    category: 'Health & Fitness',
-    image:
-      'https://images.unsplash.com/photo-1504674900247-0877df9cc836?auto=format&fit=crop&w=400&q=80',
-    status: 'processing',
-    location: 'A-12-3',
-  },
-  {
-    id: 3,
-    barcode: 'PRD34567',
-    name: 'Механическая клавиатура',
-    brand: 'Logitech',
-    country: 'Тайвань',
-    category: 'Computer Accessories',
-    image:
-      'https://images.unsplash.com/photo-1517336714731-489689fd1ca8?auto=format&fit=crop&w=400&q=80',
-    status: 'completed',
-    location: 'B-5-2',
-    packageType: 'Box',
-    containerBarcode: 'CNT123456',
-  },
-];
+    location: p.location || undefined,
+  };
+}
 
-// Моковые данные для зон размещения
-const mockZones: PlacementZone[] = [
-  {
-    id: 1,
-    name: 'Зона A',
-    capacity: 1000,
-    currentLoad: 750,
-    status: 'available',
-  },
-  {
-    id: 2,
-    name: 'Зона B',
-    capacity: 800,
-    currentLoad: 800,
-    status: 'full',
-  },
-  {
-    id: 3,
-    name: 'Зона C',
-    capacity: 1200,
-    currentLoad: 400,
-    status: 'available',
-  },
-  {
-    id: 4,
-    name: 'Зона D',
-    capacity: 600,
-    currentLoad: 0,
-    status: 'maintenance',
-  },
-];
+function mapZone(z: {
+  id: number;
+  name: string;
+  capacity: number;
+  current_usage?: number;
+  used?: number;
+  is_active?: boolean;
+}): PlacementZone {
+  const load = z.current_usage ?? z.used ?? 0;
+  const cap = z.capacity || 1;
+  let status: PlacementZone['status'] = 'available';
+  if (z.is_active === false) status = 'maintenance';
+  else if (load >= cap) status = 'full';
+  return {
+    id: z.id,
+    name: z.name,
+    capacity: cap,
+    currentLoad: load,
+    status,
+  };
+}
 
-// Сервис для работы с размещением товаров
 export const placementApi = {
-  // Получить список продуктов
-  getProducts: async (): Promise<Product[]> => {
-    try {
-      const response = await api.get('/placement/products');
-      return response.data;
-    } catch (error) {
-      console.error('Error fetching products:', error);
-      return mockProducts;
-    }
+  async getProducts(): Promise<Product[]> {
+    const res = await productApi.getProducts({ limit: 200 });
+    return res.data.map(p =>
+      mapProduct({
+        id: p.id,
+        sku: p.sku,
+        barcode: p.barcode,
+        name: p.name,
+        stock: p.stock,
+        location: p.location,
+      })
+    );
   },
 
-  // Получить список зон размещения
-  getZones: async (): Promise<PlacementZone[]> => {
-    try {
-      const response = await api.get('/placement/zones');
-      return response.data;
-    } catch (error) {
-      console.error('Error fetching zones:', error);
-      return mockZones;
-    }
+  async getZones(): Promise<PlacementZone[]> {
+    const zones = await inventoryApi.getZones();
+    return zones.map(mapZone);
   },
 
-  // Обновить местоположение продукта
-  updateProductLocation: async (productId: number, location: string): Promise<Product> => {
-    try {
-      const response = await api.patch(`/placement/products/${productId}`, { location });
-      return response.data;
-    } catch (error) {
-      console.error('Error updating product location:', error);
-      const product = mockProducts.find(p => p.id === productId);
-      if (product) {
-        product.location = location;
-        return product;
-      }
-      throw error;
-    }
+  async updateProductLocation(productId: number, location: string): Promise<Product> {
+    const products = await this.getProducts();
+    const found = products.find(p => p.id === productId);
+    if (!found) throw new Error('Product not found');
+    return { ...found, location, status: 'completed' };
   },
 
-  // Поиск продуктов
-  searchProducts: async (query: string): Promise<Product[]> => {
-    try {
-      const response = await api.get(`/placement/products/search?q=${encodeURIComponent(query)}`);
-      return response.data;
-    } catch (error) {
-      console.error('Error searching products:', error);
-      const q = query.toLowerCase();
-      return mockProducts.filter(
-        p =>
-          p.barcode.toLowerCase().includes(q) ||
-          p.name.toLowerCase().includes(q) ||
-          p.brand.toLowerCase().includes(q) ||
-          p.country.toLowerCase().includes(q) ||
-          p.category.toLowerCase().includes(q)
-      );
-    }
+  async searchProducts(query: string): Promise<Product[]> {
+    const res = await productApi.getProducts({ search: query, limit: 50 });
+    return res.data.map(p =>
+      mapProduct({
+        id: p.id,
+        sku: p.sku,
+        barcode: p.barcode,
+        name: p.name,
+        location: p.location,
+      })
+    );
   },
 
-  // Поиск зон размещения
-  searchZones: async (query: string): Promise<PlacementZone[]> => {
-    try {
-      const response = await api.get(`/placement/zones/search?q=${encodeURIComponent(query)}`);
-      return response.data;
-    } catch (error) {
-      console.error('Error searching zones:', error);
-      const q = query.toLowerCase();
-      return mockZones.filter(z => z.name.toLowerCase().includes(q));
-    }
+  async searchZones(query: string): Promise<PlacementZone[]> {
+    const zones = await this.getZones();
+    const q = query.toLowerCase();
+    return zones.filter(z => z.name.toLowerCase().includes(q));
   },
 };
 
-export default api;
+export default placementApi;

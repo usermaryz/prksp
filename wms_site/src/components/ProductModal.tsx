@@ -27,7 +27,7 @@ const ProductModal: React.FC<ProductModalProps> = observer(({ vm, onClose, onCon
             variant="primary"
             onClick={onConfirm}
             disabled={!vm.isFormValid}
-            className={!vm.isFormValid ? '' : 'bg-indigo-600 hover:bg-indigo-700'}
+            className={!vm.isFormValid ? '' : 'bg-slate-900 hover:bg-slate-800'}
           >
             Подтвердить
           </Button>

@@ -22,7 +22,7 @@ const PlacementTable: React.FC<Props> = ({ placements, search, setSearch }) => (
           type="text"
           value={search}
           onChange={e => setSearch(e.target.value)}
-          className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md bg-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+          className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md bg-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-slate-900 focus:border-slate-900 sm:text-sm"
           placeholder="Search placements"
         />
       </div>
@@ -77,10 +77,10 @@ const PlacementTable: React.FC<Props> = ({ placements, search, setSearch }) => (
                 </span>
               </td>
               <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                <button className="text-indigo-600 hover:text-indigo-900 mr-3">
+                <button className="text-slate-700 hover:text-slate-900 mr-3">
                   <i className="fas fa-eye"></i>
                 </button>
-                <button className="text-indigo-600 hover:text-indigo-900">
+                <button className="text-slate-700 hover:text-slate-900">
                   <i className="fas fa-print"></i>
                 </button>
               </td>
@@ -112,7 +112,7 @@ const PlacementTable: React.FC<Props> = ({ placements, search, setSearch }) => (
           <a
             href="#"
             aria-current="page"
-            className="z-10 bg-indigo-50 border-indigo-500 text-indigo-600 relative inline-flex items-center px-4 py-2 border text-sm font-medium"
+            className="z-10 bg-slate-100 border-slate-900 text-slate-700 relative inline-flex items-center px-4 py-2 border text-sm font-medium"
           >
             1
           </a>

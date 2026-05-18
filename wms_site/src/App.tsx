@@ -8,12 +8,14 @@ import ErrorReturnFormPage from './views/ErrorReturnFormPage';
 import { UserAccount } from './views/UserAccount';
 import OrderPickingPage from './views/OrderPickingPage';
 import { LoginPage } from './views/LoginPage';
+import { RegisterPage } from './views/RegisterPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
 
 const App: React.FC = () => (
   <BrowserRouter>
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/register" element={<RegisterPage />} />
       <Route
         path="/dashboard"
         element={

@@ -1,9 +1,27 @@
-import { makeAutoObservable } from 'mobx';
+import { makeAutoObservable, runInAction } from 'mobx';
 import { Product } from '../models/ProductModel';
 import { Placement } from '../models/PlacementModel';
 import { Zone } from '../models/ZoneModel';
 import { Aisle } from '../models/AisleModel';
 import { Shelf } from '../models/ShelfModel';
+import { placementApi } from '../services/placementApi';
+
+const defaultAisles: Aisle[] = [
+  { id: 'A1', zoneId: 'A', name: 'Проход 1', capacity: 90 },
+  { id: 'A2', zoneId: 'A', name: 'Проход 2', capacity: 80 },
+  { id: 'B1', zoneId: 'B', name: 'Проход 1', capacity: 70 },
+  { id: 'B2', zoneId: 'B', name: 'Проход 2', capacity: 60 },
+  { id: 'C1', zoneId: 'C', name: 'Проход 1', capacity: 50 },
+];
+
+const defaultShelves: Shelf[] = [
+  { id: 'A1-1', aisleId: 'A1', name: 'Полка 1', capacity: 95 },
+  { id: 'A1-2', aisleId: 'A1', name: 'Полка 2', capacity: 85 },
+  { id: 'A2-1', aisleId: 'A2', name: 'Полка 1', capacity: 75 },
+  { id: 'B1-1', aisleId: 'B1', name: 'Полка 1', capacity: 55 },
+  { id: 'B2-1', aisleId: 'B2', name: 'Полка 1', capacity: 35 },
+  { id: 'C1-1', aisleId: 'C1', name: 'Полка 1', capacity: 45 },
+];
 
 export class ProductPlacementViewModel {
   barcodeInput = '';
@@ -20,121 +38,77 @@ export class ProductPlacementViewModel {
   showSuccess = false;
   recentPlacements: Placement[] = [];
   search = '';
+  loading = false;
+  error: string | null = null;
 
-  zones: Zone[] = [
-    { id: 'A', name: 'Зона A', capacity: 85 },
-    { id: 'B', name: 'Зона B', capacity: 65 },
-    { id: 'C', name: 'Зона C', capacity: 45 },
-    { id: 'D', name: 'Зона D', capacity: 25 },
-  ];
-  aisles: Aisle[] = [
-    { id: 'A1', zoneId: 'A', name: 'Проход 1', capacity: 90 },
-    { id: 'A2', zoneId: 'A', name: 'Проход 2', capacity: 80 },
-    { id: 'A3', zoneId: 'A', name: 'Проход 3', capacity: 75 },
-    { id: 'B1', zoneId: 'B', name: 'Проход 1', capacity: 70 },
-    { id: 'B2', zoneId: 'B', name: 'Проход 2', capacity: 60 },
-    { id: 'C1', zoneId: 'C', name: 'Проход 1', capacity: 50 },
-    { id: 'C2', zoneId: 'C', name: 'Проход 2', capacity: 40 },
-    { id: 'D1', zoneId: 'D', name: 'Проход 1', capacity: 30 },
-    { id: 'D2', zoneId: 'D', name: 'Проход 2', capacity: 20 },
-  ];
-  shelves: Shelf[] = [
-    { id: 'A1-1', aisleId: 'A1', name: 'Полка 1', capacity: 95 },
-    { id: 'A1-2', aisleId: 'A1', name: 'Полка 2', capacity: 85 },
-    { id: 'A2-1', aisleId: 'A2', name: 'Полка 1', capacity: 75 },
-    { id: 'A2-2', aisleId: 'A2', name: 'Полка 2', capacity: 65 },
-    { id: 'B1-1', aisleId: 'B1', name: 'Полка 1', capacity: 55 },
-    { id: 'B1-2', aisleId: 'B1', name: 'Полка 2', capacity: 45 },
-    { id: 'B2-1', aisleId: 'B2', name: 'Полка 1', capacity: 35 },
-    { id: 'B2-2', aisleId: 'B2', name: 'Полка 2', capacity: 25 },
-  ];
-
-  // Тестовые данные для продуктов
-  products: Product[] = [
-    {
-      id: 1,
-      name: 'Беспроводные наушники',
-      barcode: 'PRD12345',
-      brand: 'Sony',
-      country: 'Япония',
-      category: 'Электроника',
-      image: 'https://example.com/headphones.jpg',
-      weight: '250g',
-      dimensions: '10x5x3cm'
-    },
-    {
-      id: 2,
-      name: 'Белковый порошок',
-      barcode: 'PRD23456',
-      brand: 'Optimum Nutrition',
-      country: 'США',
-      category: 'Спортивное питание',
-      image: 'https://example.com/protein.jpg',
-      weight: '2kg',
-      dimensions: '20x15x10cm'
-    },
-    {
-      id: 3,
-      name: 'Механическая клавиатура',
-      barcode: 'PRD34567',
-      brand: 'Logitech',
-      country: 'Швейцария',
-      category: 'Периферия',
-      image: 'https://example.com/keyboard.jpg',
-      weight: '1.2kg',
-      dimensions: '45x15x3cm'
-    }
-  ];
+  products: Product[] = [];
+  zones: Zone[] = [];
+  aisles: Aisle[] = defaultAisles;
+  shelves: Shelf[] = defaultShelves;
 
   constructor() {
     makeAutoObservable(this);
-    this.recentPlacements = [
-      {
-        id: 1,
-        productName: 'Беспроводные наушники',
-        barcode: 'PRD12345',
-        location: 'Зона A, Шкаф 2, Полка 1',
-        timestamp: '2025-05-05 09:15:23',
-        quantity: 5,
-        status: 'Завершен',
-      },
-      {
-        id: 2,
-        productName: 'Белковый порошок',
-        barcode: 'PRD23456',
-        location: 'Зона B, Шкаф 1, Полка 2',
-        timestamp: '2025-05-05 08:42:11',
-        quantity: 10,
-        status: 'В обработке',
-      },
-      {
-        id: 3,
-        productName: 'Механическая клавиатура',
-        barcode: 'PRD34567',
-        location: 'Зона A, Шкаф 3, Полка 1',
-        timestamp: '2025-05-04 16:37:45',
-        quantity: 3,
-        status: 'Ожидает размещения',
-      },
-      {
-        id: 4,
-        productName: 'Кофеварка',
-        barcode: 'PRD45678',
-        location: 'Зона C, Шкаф 1, Полка 1',
-        timestamp: '2025-05-04 14:22:09',
-        quantity: 2,
-        status: 'В обработке',
-      },
-      {
-        id: 5,
-        productName: 'Беговые кроссовки',
-        barcode: 'PRD56789',
-        location: 'Зона B, Шкаф 2, Полка 1',
-        timestamp: '2025-05-04 11:05:37',
-        quantity: 8,
-        status: 'Ожидает размещения',
-      },
-    ];
+    void this.loadFromApi();
+  }
+
+  async loadFromApi() {
+    this.loading = true;
+    this.error = null;
+    try {
+      const [products, apiZones] = await Promise.all([
+        placementApi.getProducts(),
+        placementApi.getZones(),
+      ]);
+      runInAction(() => {
+        this.products = products;
+        this.zones = apiZones.map(z => ({
+          id: String(z.id),
+          name: z.name,
+          capacity: z.capacity ? Math.round((z.currentLoad / z.capacity) * 100) : 50,
+        }));
+        if (this.zones.length === 0) {
+          this.zones = [
+            { id: 'A', name: 'Зона A', capacity: 85 },
+            { id: 'B', name: 'Зона B', capacity: 65 },
+            { id: 'C', name: 'Зона C', capacity: 45 },
+          ];
+        }
+        this.recentPlacements = products
+          .filter(p => p.location)
+          .slice(0, 12)
+          .map(p => ({
+            id: p.id,
+            productName: p.name,
+            barcode: p.barcode,
+            location: p.location!,
+            timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
+            quantity: 1,
+            status: 'Завершен' as const,
+          }));
+        if (this.recentPlacements.length === 0) {
+          this.recentPlacements = [
+            {
+              id: 1,
+              productName: products[0]?.name || 'iPhone 15 Pro',
+              barcode: products[0]?.barcode || '4000000000001',
+              location: 'A-01-03',
+              timestamp: '2026-05-18 10:15:00',
+              quantity: 5,
+              status: 'Завершен',
+            },
+          ];
+        }
+      });
+    } catch (e) {
+      runInAction(() => {
+        this.error = 'Не удалось загрузить данные склада';
+        console.error(e);
+      });
+    } finally {
+      runInAction(() => {
+        this.loading = false;
+      });
+    }
   }
 
   get filteredPlacements() {
@@ -148,7 +122,9 @@ export class ProductPlacementViewModel {
 
   get filteredAisles() {
     if (!this.selectedZone) return [];
-    return this.aisles.filter(a => a.zoneId === this.selectedZone);
+    const zone = this.zones.find(z => z.id === this.selectedZone);
+    const code = zone?.name.match(/Зона\s+(\w)/)?.[1] || this.selectedZone.charAt(0);
+    return this.aisles.filter(a => a.zoneId === code || a.zoneId === this.selectedZone);
   }
 
   get filteredShelves() {
@@ -163,7 +139,7 @@ export class ProductPlacementViewModel {
       this.selectedAisle &&
       this.selectedShelf &&
       this.quantity &&
-      parseInt(this.quantity) > 0
+      parseInt(this.quantity, 10) > 0
     );
   }
 
@@ -172,32 +148,18 @@ export class ProductPlacementViewModel {
   }
 
   setSelectedZone(value: string) {
-    console.log('Setting zone:', value);
     this.selectedZone = value;
     this.selectedAisle = '';
     this.selectedShelf = '';
-    console.log('Current state:', {
-      selectedZone: this.selectedZone,
-      filteredAisles: this.filteredAisles
-    });
   }
 
   setSelectedAisle(value: string) {
-    console.log('Setting aisle:', value);
     this.selectedAisle = value;
     this.selectedShelf = '';
-    console.log('Current state:', {
-      selectedAisle: this.selectedAisle,
-      filteredShelves: this.filteredShelves
-    });
   }
 
   setSelectedShelf(value: string) {
-    console.log('Setting shelf:', value);
     this.selectedShelf = value;
-    console.log('Current state:', {
-      selectedShelf: this.selectedShelf
-    });
   }
 
   setQuantity(value: string) {
@@ -241,50 +203,45 @@ export class ProductPlacementViewModel {
       setTimeout(() => (this.showError = false), 3000);
       return;
     }
-    const product = this.products.find(p => p.barcode === this.barcodeInput);
+    const product = this.products.find(
+      p => p.barcode === this.barcodeInput || p.barcode.includes(this.barcodeInput)
+    );
     if (product) {
       this.scannedProduct = product;
       this.showSuccess = true;
       setTimeout(() => (this.showSuccess = false), 2000);
     } else {
       this.showError = true;
-      this.errorMessage = 'Продукт не найден. Пожалуйста, попробуйте снова.';
+      this.errorMessage = 'Продукт не найден. Попробуйте: 4000000000001 или PRD12345';
       setTimeout(() => (this.showError = false), 3000);
     }
   }
 
-  confirmPlacement(user: string) {
-    if (
-      !this.scannedProduct ||
-      !this.selectedZone ||
-      !this.selectedAisle ||
-      !this.selectedShelf ||
-      !this.quantity
-    ) {
+  confirmPlacement(_user: string) {
+    if (!this.isFormValid || !this.scannedProduct) {
       this.showError = true;
       this.errorMessage = 'Пожалуйста, заполните все обязательные поля';
       setTimeout(() => (this.showError = false), 3000);
       return;
     }
-    const statuses: ('Завершен' | 'В обработке' | 'Ожидает размещения')[] = ['Завершен', 'В обработке', 'Ожидает размещения'];
-    const randomStatus = statuses[Math.floor(Math.random() * statuses.length)];
+    const zoneName = this.zones.find(z => z.id === this.selectedZone)?.name || this.selectedZone;
     const newPlacement: Placement = {
       id: Date.now(),
       productName: this.scannedProduct.name,
       barcode: this.scannedProduct.barcode,
-      location: `Zone ${this.selectedZone}, Aisle ${this.selectedAisle.split('-')[1]}, Shelf ${this.selectedShelf.split('-')[1]}`,
+      location: `${zoneName}, ${this.selectedAisle}, ${this.selectedShelf}`,
       timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
-      quantity: parseInt(this.quantity),
-      status: randomStatus,
+      quantity: parseInt(this.quantity, 10),
+      status: 'Завершен',
     };
-    this.recentPlacements = [newPlacement, ...this.recentPlacements].slice(0, 10);
+    this.recentPlacements = [newPlacement, ...this.recentPlacements].slice(0, 12);
+    void placementApi.updateProductLocation(this.scannedProduct.id, newPlacement.location);
     this.closeModal();
     this.showSuccess = true;
     setTimeout(() => (this.showSuccess = false), 2000);
   }
 
   acceptPlacement(placement: Placement) {
-    // Находим продукт по штрих-коду
     const product = this.products.find(p => p.barcode === placement.barcode);
     if (product) {
       this.scannedProduct = product;

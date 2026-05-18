@@ -95,7 +95,7 @@ const OrderAcceptModal: React.FC<Props> = ({
             <button
               type="submit"
               disabled={!isValid}
-              className={`inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white ${isValid ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-gray-400 cursor-not-allowed'}`}
+              className={`inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white ${isValid ? 'bg-slate-900 hover:bg-slate-800' : 'bg-gray-400 cursor-not-allowed'}`}
             >
               Принять
             </button>

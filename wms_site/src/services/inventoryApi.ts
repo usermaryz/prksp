@@ -83,6 +83,18 @@ export interface PlacementTask {
 // API методы
 export const inventoryApi = {
   /**
+   * Получить склады
+   */
+  async getWarehouses(): Promise<{ id: number; code: string; name: string; address?: string }[]> {
+    try {
+      const response = await api.get('/inventory/warehouses');
+      return response.data;
+    } catch (error) {
+      throw handleApiError(error);
+    }
+  },
+
+  /**
    * Получить зоны склада
    */
   async getZones(): Promise<WarehouseZone[]> {

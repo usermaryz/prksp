@@ -17,7 +17,7 @@ describe('Компонент Кнопка', () => {
 
     it('применяет стили основного варианта', () => {
         mount(<Button variant="primary">Primary Button</Button>);
-        cy.get('button').should('have.class', 'bg-blue-600');
+        cy.get('button').should('have.class', 'bg-slate-900');
     });
 
     it('применяет стили вторичного варианта', () => {

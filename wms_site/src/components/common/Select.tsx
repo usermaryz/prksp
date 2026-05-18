@@ -45,7 +45,7 @@ const Select: React.FC<SelectProps> = ({
           w-full px-4 py-2 rounded-md border
           ${error ? 'border-red-500' : 'border-gray-300'}
           ${disabled ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'}
-          focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
+          focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent
           ${className}
         `}
             >

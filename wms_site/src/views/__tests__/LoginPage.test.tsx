@@ -4,109 +4,115 @@ import { BrowserRouter } from 'react-router-dom';
 import { LoginPage } from '../LoginPage';
 import { authApi } from '../../services/authApi';
 
-// Мокаем authApi
 jest.mock('../../services/authApi');
+jest.mock('../../services/api', () => {
+  const actual = jest.requireActual('../../services/api');
+  return {
+    ...actual,
+    handleApiError: (error: unknown) => {
+      const err = error as { response?: { data?: { detail?: string } } };
+      return { message: err.response?.data?.detail || 'Ошибка сервера' };
+    },
+  };
+});
 
-// Мокаем useNavigate
 const mockNavigate = jest.fn();
 jest.mock('react-router-dom', () => ({
-    ...jest.requireActual('react-router-dom'),
-    useNavigate: () => mockNavigate,
+  ...jest.requireActual('react-router-dom'),
+  useNavigate: () => mockNavigate,
+  useLocation: () => ({ state: null }),
 }));
 
 describe('LoginPage', () => {
-    beforeEach(() => {
-        mockNavigate.mockClear();
-        localStorage.clear();
+  beforeEach(() => {
+    mockNavigate.mockClear();
+    localStorage.clear();
+  });
+
+  it('renders login form correctly', () => {
+    render(
+      <BrowserRouter>
+        <LoginPage />
+      </BrowserRouter>
+    );
+
+    expect(screen.getByText('Добро пожаловать')).toBeInTheDocument();
+    expect(screen.getByText('Система управления складом')).toBeInTheDocument();
+    expect(screen.getByLabelText('Логин')).toBeInTheDocument();
+    expect(screen.getByLabelText('Пароль')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Войти' })).toBeInTheDocument();
+    expect(screen.getByText('Демо: admin / admin')).toBeInTheDocument();
+  });
+
+  it('shows loading state during login', async () => {
+    (authApi.login as jest.Mock).mockImplementation(() => new Promise(resolve => setTimeout(resolve, 100)));
+
+    render(
+      <BrowserRouter>
+        <LoginPage />
+      </BrowserRouter>
+    );
+
+    fireEvent.change(screen.getByLabelText('Логин'), { target: { value: 'admin' } });
+    fireEvent.change(screen.getByLabelText('Пароль'), { target: { value: 'admin' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Войти' }));
+
+    expect(screen.getByRole('button', { name: 'Вход...' })).toBeInTheDocument();
+  });
+
+  it('handles successful login', async () => {
+    (authApi.login as jest.Mock).mockResolvedValue({
+      user: { id: 1, username: 'admin', role: 'admin' },
+      access_token: 'token',
     });
 
-    it('renders login form correctly', () => {
-        render(
-            <BrowserRouter>
-                <LoginPage />
-            </BrowserRouter>
-        );
+    render(
+      <BrowserRouter>
+        <LoginPage />
+      </BrowserRouter>
+    );
 
-        expect(screen.getByText('Вход в систему')).toBeInTheDocument();
-        expect(screen.getByLabelText('Логин')).toBeInTheDocument();
-        expect(screen.getByLabelText('Пароль')).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: 'Войти' })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Логин'), { target: { value: 'admin' } });
+    fireEvent.change(screen.getByLabelText('Пароль'), { target: { value: 'admin' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Войти' }));
+
+    await waitFor(() => {
+      expect(authApi.login).toHaveBeenCalledWith({ username: 'admin', password: 'admin' });
+      expect(mockNavigate).toHaveBeenCalledWith('/dashboard');
+    });
+  });
+
+  it('handles login error', async () => {
+    const errorMessage = 'Неверный логин или пароль';
+    (authApi.login as jest.Mock).mockRejectedValue({
+      response: { data: { detail: errorMessage } },
     });
 
-    it('shows loading state during login', async () => {
-        (authApi.login as jest.Mock).mockImplementation(() => new Promise(resolve => setTimeout(resolve, 100)));
+    render(
+      <BrowserRouter>
+        <LoginPage />
+      </BrowserRouter>
+    );
 
-        render(
-            <BrowserRouter>
-                <LoginPage />
-            </BrowserRouter>
-        );
+    fireEvent.change(screen.getByLabelText('Логин'), { target: { value: 'wrong' } });
+    fireEvent.change(screen.getByLabelText('Пароль'), { target: { value: 'wrong' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Войти' }));
 
-        fireEvent.change(screen.getByLabelText('Логин'), { target: { value: 'admin' } });
-        fireEvent.change(screen.getByLabelText('Пароль'), { target: { value: 'admin' } });
-        fireEvent.click(screen.getByRole('button', { name: 'Войти' }));
-
-        expect(screen.getByRole('button', { name: 'Вход...' })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText(errorMessage)).toBeInTheDocument();
     });
+  });
 
-    it('handles successful login', async () => {
-        const mockUser = {
-            fullName: 'Марк Кучер',
-            role: 'Главный бригадир',
-            email: 'mark.kucher@wms.com'
-        };
+  it('validates required fields', () => {
+    render(
+      <BrowserRouter>
+        <LoginPage />
+      </BrowserRouter>
+    );
 
-        (authApi.login as jest.Mock).mockResolvedValue({ user: mockUser });
+    fireEvent.click(screen.getByRole('button', { name: 'Войти' }));
 
-        render(
-            <BrowserRouter>
-                <LoginPage />
-            </BrowserRouter>
-        );
-
-        fireEvent.change(screen.getByLabelText('Логин'), { target: { value: 'admin' } });
-        fireEvent.change(screen.getByLabelText('Пароль'), { target: { value: 'admin' } });
-        fireEvent.click(screen.getByRole('button', { name: 'Войти' }));
-
-        await waitFor(() => {
-            expect(localStorage.getItem('user')).toBe(JSON.stringify(mockUser));
-            expect(localStorage.getItem('isLoggedIn')).toBe('true');
-            expect(mockNavigate).toHaveBeenCalledWith('/dashboard');
-        });
-    });
-
-    it('handles login error', async () => {
-        const errorMessage = 'Неверный логин или пароль';
-        (authApi.login as jest.Mock).mockRejectedValue({
-            response: { data: { message: errorMessage } }
-        });
-
-        render(
-            <BrowserRouter>
-                <LoginPage />
-            </BrowserRouter>
-        );
-
-        fireEvent.change(screen.getByLabelText('Логин'), { target: { value: 'wrong' } });
-        fireEvent.change(screen.getByLabelText('Пароль'), { target: { value: 'wrong' } });
-        fireEvent.click(screen.getByRole('button', { name: 'Войти' }));
-
-        await waitFor(() => {
-            expect(screen.getByText(errorMessage)).toBeInTheDocument();
-        });
-    });
-
-    it('validates required fields', () => {
-        render(
-            <BrowserRouter>
-                <LoginPage />
-            </BrowserRouter>
-        );
-
-        const loginButton = screen.getByRole('button', { name: 'Войти' });
-        fireEvent.click(loginButton);
-
-        expect(screen.getByLabelText('Логин')).toBeInvalid();
-        expect(screen.getByLabelText('Пароль')).toBeInvalid();
-    });
-}); 
+    expect(screen.getByLabelText('Логин')).toBeInvalid();
+    expect(screen.getByLabelText('Пароль')).toBeInvalid();
+  });
+});

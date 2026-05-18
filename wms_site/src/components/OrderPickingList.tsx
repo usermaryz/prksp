@@ -48,7 +48,7 @@ const OrderPickingList: React.FC<Props> = ({ orders, selectedOrderId, onOrderSel
                         key={order.id}
                         className={classNames(
                             'px-4 py-4 hover:bg-gray-50 cursor-pointer',
-                            selectedOrderId === order.id && 'bg-indigo-50'
+                            selectedOrderId === order.id && 'bg-slate-100'
                         )}
                         onClick={() => onOrderSelect(order)}
                     >

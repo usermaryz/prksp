@@ -19,7 +19,7 @@ describe('Авторизация', () => {
         cy.get('input[type="password"]').clear().type('wrong');
         cy.get('button[type="submit"]').click();
 
-        cy.contains('Логин или пароль указаны неверно', { timeout: 10000 }).should('be.visible');
+        cy.contains('Неверный логин или пароль', { timeout: 10000 }).should('be.visible');
     });
 
     it('форма входа отображается', () => {

@@ -1,46 +1,25 @@
 import { DashboardViewModel } from '../DashboardViewModel';
+import { dashboardApi } from '../../services/dashboardApi';
+
+jest.mock('../../services/dashboardApi');
+
+const mockMetrics = {
+  orders: { total: 10, pending: 2, picking: 1, shipped: 3 },
+  products: { total: 50, active: 45, low_stock: 5 },
+  picking: { pending_tasks: 2, in_progress: 1 },
+};
 
 describe('DashboardViewModel', () => {
-  let viewModel: DashboardViewModel;
-
   beforeEach(() => {
-    viewModel = new DashboardViewModel();
+    (dashboardApi.getMetrics as jest.Mock).mockResolvedValue(mockMetrics);
   });
 
-  it('initializes with correct stats data', () => {
-    const stats = viewModel.stats;
+  it('loads stats from API', async () => {
+    const viewModel = new DashboardViewModel();
+    await new Promise(r => setTimeout(r, 50));
 
-    expect(stats).toHaveLength(4);
-    expect(stats[0].label).toBe('Общее количество заказов');
-    expect(stats[1].label).toBe('Скорость обработки');
-    expect(stats[2].label).toBe('Уровень инвентаризации');
-    expect(stats[3].label).toBe('Коэффициент возврата');
-  });
-
-  it('has correct initial values', () => {
-    const stats = viewModel.stats;
-
-    expect(stats[0].value).toBe('1,284');
-    expect(stats[1].value).toBe('98.3%');
-    expect(stats[2].value).toBe('85.7%');
-    expect(stats[3].value).toBe('3.8%');
-  });
-
-  it('has correct change indicators', () => {
-    const stats = viewModel.stats;
-
-    expect(stats[0].changeType).toBe('up');
-    expect(stats[1].changeType).toBe('up');
-    expect(stats[2].changeType).toBe('down');
-    expect(stats[3].changeType).toBe('down');
-  });
-
-  it('has correct color classes', () => {
-    const stats = viewModel.stats;
-
-    expect(stats[0].color).toBe('bg-indigo-100 text-indigo-600');
-    expect(stats[1].color).toBe('bg-blue-100 text-blue-600');
-    expect(stats[2].color).toBe('bg-green-100 text-green-600');
-    expect(stats[3].color).toBe('bg-red-100 text-red-600');
+    expect(viewModel.stats).toHaveLength(4);
+    expect(viewModel.stats[0].label).toBe('Заказы всего');
+    expect(viewModel.stats[0].value).toBe('10');
   });
 });

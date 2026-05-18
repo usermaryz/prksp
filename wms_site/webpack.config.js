@@ -49,7 +49,7 @@ module.exports = {
     plugins: [
         new webpack.DefinePlugin({
             'process.env.REACT_APP_API_URL': JSON.stringify(
-                process.env.REACT_APP_API_URL || 'http://localhost:8000/api'
+                process.env.REACT_APP_API_URL || '/api'
             ),
         }),
         new HtmlWebpackPlugin({
@@ -59,6 +59,13 @@ module.exports = {
     devServer: {
         historyApiFallback: true,
         hot: true,
-        port: 3000
+        port: 3000,
+        proxy: [
+            {
+                context: ['/api'],
+                target: 'http://localhost:8000',
+                changeOrigin: true,
+            },
+        ],
     }
 }; 

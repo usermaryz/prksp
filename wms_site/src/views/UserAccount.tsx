@@ -1,7 +1,8 @@
 import React from 'react';
 import { observer } from 'mobx-react-lite';
 import { UserAccountViewModel } from '../viewmodels/UserAccountViewModel';
-import Navigation from '../components/Navigation';
+import AppLayout from '../components/layout/AppLayout';
+import { btnPrimary, pageCard } from '../components/layout/pageStyles';
 
 const viewModel = new UserAccountViewModel();
 
@@ -10,12 +11,11 @@ export const UserAccount: React.FC = observer(() => {
   if (!user) return null;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-      <Navigation active="Аккаунт" />
-      <div className="p-6 max-w-7xl mx-auto">
+    <AppLayout>
+      <div>
         <div className="flex justify-between items-center mb-8">
           <div className="flex items-center space-x-4">
-            <div className="w-16 h-16 rounded-full bg-indigo-600 flex items-center justify-center text-white text-xl font-bold">
+            <div className="w-16 h-16 rounded-full bg-slate-900 flex items-center justify-center text-white text-xl font-bold">
               {user.fullName
                 .split(' ')
                 .map(n => n[0])
@@ -60,8 +60,8 @@ export const UserAccount: React.FC = observer(() => {
             <div className="space-y-4">
               {viewModel.recentActivities.map(activity => (
                 <div key={activity.id} className="flex items-start space-x-3">
-                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center">
-                    <i className={`fas ${activity.icon} text-indigo-600`}></i>
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center">
+                    <i className={`fas ${activity.icon} text-slate-700`}></i>
                   </div>
                   <div>
                     <p className="text-sm font-medium text-gray-900">{activity.action}</p>
@@ -72,7 +72,7 @@ export const UserAccount: React.FC = observer(() => {
             </div>
             <button
               onClick={() => viewModel.toggleAllActivities()}
-              className="mt-4 text-sm text-indigo-600 hover:text-indigo-700 font-medium"
+              className="mt-4 text-sm text-slate-700 hover:text-slate-800 font-medium"
             >
               Смотреть все действия
               <i className="fas fa-arrow-right ml-1"></i>
@@ -91,7 +91,7 @@ export const UserAccount: React.FC = observer(() => {
                         type="email"
                         value={viewModel.tempValues.email}
                         onChange={e => viewModel.updateTempValue('email', e.target.value)}
-                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-slate-900"
                       />
                       <button
                         onClick={() => viewModel.saveField('email')}
@@ -116,7 +116,7 @@ export const UserAccount: React.FC = observer(() => {
                       />
                       <button
                         onClick={() => viewModel.toggleEditing('email')}
-                        className="ml-2 text-indigo-600 hover:text-indigo-700"
+                        className="ml-2 text-slate-700 hover:text-slate-800"
                       >
                         <i className="fas fa-pen"></i>
                       </button>
@@ -133,7 +133,7 @@ export const UserAccount: React.FC = observer(() => {
                         type="tel"
                         value={viewModel.tempValues.phone}
                         onChange={e => viewModel.updateTempValue('phone', e.target.value)}
-                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-slate-900"
                       />
                       <button
                         onClick={() => viewModel.saveField('phone')}
@@ -158,7 +158,7 @@ export const UserAccount: React.FC = observer(() => {
                       />
                       <button
                         onClick={() => viewModel.toggleEditing('phone')}
-                        className="ml-2 text-indigo-600 hover:text-indigo-700"
+                        className="ml-2 text-slate-700 hover:text-slate-800"
                       >
                         <i className="fas fa-pen"></i>
                       </button>
@@ -175,7 +175,7 @@ export const UserAccount: React.FC = observer(() => {
                         type="text"
                         value={viewModel.tempValues.location}
                         onChange={e => viewModel.updateTempValue('location', e.target.value)}
-                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-slate-900"
                       />
                       <button
                         onClick={() => viewModel.saveField('location')}
@@ -200,7 +200,7 @@ export const UserAccount: React.FC = observer(() => {
                       />
                       <button
                         onClick={() => viewModel.toggleEditing('location')}
-                        className="ml-2 text-indigo-600 hover:text-indigo-700"
+                        className="ml-2 text-slate-700 hover:text-slate-800"
                       >
                         <i className="fas fa-pen"></i>
                       </button>
@@ -234,8 +234,8 @@ export const UserAccount: React.FC = observer(() => {
                             key={activity.id}
                             className="flex items-start space-x-3 p-2 hover:bg-gray-50 rounded-lg transition-colors"
                           >
-                            <div className="flex-shrink-0 w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center">
-                              <i className={`fas ${activity.icon} text-indigo-600`}></i>
+                            <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center">
+                              <i className={`fas ${activity.icon} text-slate-700`}></i>
                             </div>
                             <div>
                               <p className="text-sm font-medium text-gray-900">{activity.action}</p>
@@ -252,7 +252,7 @@ export const UserAccount: React.FC = observer(() => {
                 <button
                   type="button"
                   onClick={() => viewModel.toggleAllActivities()}
-                  className="w-full inline-flex justify-center rounded-lg border border-transparent shadow-sm px-4 py-2 bg-indigo-600 text-base font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:ml-3 sm:w-auto sm:text-sm"
+                  className="w-full inline-flex justify-center rounded-lg border border-transparent shadow-sm px-4 py-2 bg-slate-900 text-base font-medium text-white hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-900 sm:ml-3 sm:w-auto sm:text-sm"
                 >
                   Закрыть
                 </button>
@@ -261,6 +261,6 @@ export const UserAccount: React.FC = observer(() => {
           </div>
         </div>
       )}
-    </div>
+    </AppLayout>
   );
 });

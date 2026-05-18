@@ -53,7 +53,7 @@ const OrderPickingDetails: React.FC<Props> = ({
         </div>
         <div className="w-full bg-gray-200 rounded-full h-2">
           <div
-            className="bg-blue-600 h-2 rounded-full"
+            className="bg-slate-900 h-2 rounded-full"
             style={{
               width: `${(order.products.filter(p => p.picked).length / order.products.length) * 100}%`,
             }}
@@ -95,7 +95,7 @@ const OrderPickingDetails: React.FC<Props> = ({
                   'px-4 py-2 rounded-md text-sm font-medium',
                   product.picked
                     ? 'bg-green-100 text-green-800 cursor-not-allowed'
-                    : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                    : 'bg-slate-900 text-white hover:bg-slate-800'
                 )}
               >
                 {product.picked ? 'Собран' : 'Отметить как собранный'}

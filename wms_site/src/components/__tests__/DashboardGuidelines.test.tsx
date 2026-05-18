@@ -65,6 +65,6 @@ describe('DashboardGuidelines', () => {
     expect(container).toHaveClass('bg-white', 'rounded-xl', 'shadow', 'p-6', 'max-w-md');
 
     const downloadButton = screen.getByText('Скачать политику возврата').closest('a');
-    expect(downloadButton).toHaveClass('bg-indigo-50', 'hover:bg-indigo-100', 'text-indigo-700');
+    expect(downloadButton).toHaveClass('bg-slate-100', 'hover:bg-slate-100', 'text-slate-800');
   });
 });

@@ -21,7 +21,7 @@ const categoryLabels: Record<string, string> = {
 const categoryColors: Record<string, string> = {
   Electronics: 'bg-blue-100 text-blue-800',
   'Health & Fitness': 'bg-green-100 text-green-800',
-  'Computer Accessories': 'bg-indigo-100 text-indigo-800',
+  'Computer Accessories': 'bg-slate-100 text-slate-800',
   'Kitchen Appliances': 'bg-yellow-100 text-yellow-800',
   Footwear: 'bg-pink-100 text-pink-800',
   Wearables: 'bg-purple-100 text-purple-800',
@@ -127,7 +127,7 @@ const ProductTable: React.FC<Props> = ({ products, onAccept }) => {
                 {product.status !== 'completed' ? (
                   <button
                     onClick={() => onAccept(product)}
-                    className="text-white bg-indigo-600 hover:bg-indigo-700 px-4 py-2 rounded-md text-sm font-medium"
+                    className="text-white bg-slate-900 hover:bg-slate-800 px-4 py-2 rounded-md text-sm font-medium"
                   >
                     Принять
                   </button>

@@ -11,7 +11,7 @@ describe('DashboardStats', () => {
       value: '1,284',
       change: '12.5%',
       changeType: 'up',
-      color: 'bg-indigo-100 text-indigo-600',
+      color: 'bg-slate-100 text-slate-700',
     },
     {
       icon: 'fa-solid fa-chart-line',
@@ -39,7 +39,7 @@ describe('DashboardStats', () => {
     render(<DashboardStats stats={mockStats} />);
 
     const statCards = document.querySelectorAll('.dashboard-stats__card');
-    expect(statCards[0].querySelector('.bg-indigo-100')).toBeInTheDocument();
+    expect(statCards[0].querySelector('.bg-slate-100')).toBeInTheDocument();
     expect(statCards[1].querySelector('.bg-blue-100')).toBeInTheDocument();
   });
 

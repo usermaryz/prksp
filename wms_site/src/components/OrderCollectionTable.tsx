@@ -52,8 +52,8 @@ const OrderCollectionTable: React.FC<Props> = ({ orders, onAction }) => (
         <tbody className="bg-white divide-y divide-gray-200">
           {orders.map(order => (
             <tr key={order.id}>
-              <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-indigo-700 flex items-center">
-                <i className="fas fa-box mr-2 text-indigo-400"></i>
+              <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-slate-800 flex items-center">
+                <i className="fas fa-box mr-2 text-slate-400"></i>
                 {order.id}
               </td>
               <td className="px-4 py-4 whitespace-nowrap text-sm">
@@ -62,7 +62,7 @@ const OrderCollectionTable: React.FC<Props> = ({ orders, onAction }) => (
               </td>
               <td className="px-4 py-4 text-sm">
                 <div className="flex flex-col">
-                  <span className="inline-flex items-center px-2 py-0.5 rounded bg-indigo-100 text-indigo-700 text-xs font-semibold mb-1">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded bg-slate-100 text-slate-800 text-xs font-semibold mb-1">
                     {order.items.length}{' '}
                     {order.items.length === 1
                       ? 'товар'
@@ -100,7 +100,7 @@ const OrderCollectionTable: React.FC<Props> = ({ orders, onAction }) => (
                   </span>
                 ) : (
                   <button
-                    className="text-indigo-600 hover:text-indigo-900 flex items-center"
+                    className="text-slate-700 hover:text-slate-900 flex items-center"
                     onClick={() => onAction(order)}
                   >
                     <i className="fas fa-play mr-1"></i>

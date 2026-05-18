@@ -1,6 +1,41 @@
 import { makeAutoObservable } from 'mobx';
-import { orderApi } from '../services/orderApi';
+import { productApi } from '../services/productApi';
 import { Product } from '../models/ProductModel';
+
+function parseMeta(description?: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!description) return out;
+  description.split('|').forEach(part => {
+    const [key, value] = part.split(':');
+    if (key && value) out[key.trim()] = value.trim();
+  });
+  return out;
+}
+
+function mapApiProduct(p: {
+  id: number;
+  sku: string;
+  barcode: string;
+  name: string;
+  description?: string;
+  location?: string;
+  stock?: number;
+}): Product {
+  const meta = parseMeta(p.description);
+  return {
+    id: p.id,
+    barcode: p.barcode || p.sku,
+    name: p.name,
+    brand: meta.brand || '—',
+    country: meta.country || '—',
+    category: meta.category || 'Electronics',
+    image: '',
+    weight: meta.weight || '—',
+    dimensions: meta.dimensions || '—',
+    status: 'pending',
+    location: p.location,
+  };
+}
 
 export class OrderManagementViewModel {
   products: Product[] = [];
@@ -9,56 +44,33 @@ export class OrderManagementViewModel {
   packageType = '';
   containerBarcode = '';
   selectedProduct: Product | null = null;
-  loading: boolean = false;
+  loading = false;
   error: string | null = null;
 
   constructor() {
     makeAutoObservable(this);
-    this.loadProducts();
+    void this.loadProducts();
   }
 
   async loadProducts() {
     try {
       this.loading = true;
       this.error = null;
-      this.products = await orderApi.getProducts();
+      const response = await productApi.getProducts({ limit: 100 });
+      this.products = response.data.map(p =>
+        mapApiProduct({
+          id: p.id,
+          sku: p.sku,
+          barcode: p.barcode,
+          name: p.name,
+          description: (p as { description?: string }).description,
+          location: (p as { location?: string }).location,
+          stock: (p as { stock?: number }).stock,
+        })
+      );
     } catch (error) {
-      this.error = 'Ошибка при загрузке списка продуктов';
+      this.error = 'Ошибка при загрузке списка товаров';
       console.error('Error loading products:', error);
-    } finally {
-      this.loading = false;
-    }
-  }
-
-  async updateProductStatus(productId: number, status: Product['status']) {
-    try {
-      this.loading = true;
-      this.error = null;
-      const updatedProduct = await orderApi.updateProductStatus(productId, status);
-      const index = this.products.findIndex(p => p.id === productId);
-      if (index !== -1) {
-        this.products[index] = updatedProduct;
-      }
-    } catch (error) {
-      this.error = 'Ошибка при обновлении статуса продукта';
-      console.error('Error updating product status:', error);
-    } finally {
-      this.loading = false;
-    }
-  }
-
-  async updateProduct(productId: number, data: Partial<Product>) {
-    try {
-      this.loading = true;
-      this.error = null;
-      const updatedProduct = await orderApi.updateProduct(productId, data);
-      const index = this.products.findIndex(p => p.id === productId);
-      if (index !== -1) {
-        this.products[index] = updatedProduct;
-      }
-    } catch (error) {
-      this.error = 'Ошибка при обновлении продукта';
-      console.error('Error updating product:', error);
     } finally {
       this.loading = false;
     }
@@ -87,21 +99,24 @@ export class OrderManagementViewModel {
   }
 
   handleReject(product: Product) {
-    const updatedProduct = { ...product, status: 'rejected' as const };
     const index = this.products.findIndex(p => p.id === product.id);
     if (index !== -1) {
-      this.products[index] = updatedProduct;
+      this.products[index] = { ...product, status: 'rejected' };
     }
   }
 
   handleModalSubmit() {
     if (!this.selectedProduct) return;
 
-    this.updateProduct(this.selectedProduct.id, {
-      status: 'processing',
-      packageType: this.packageType,
-      containerBarcode: this.containerBarcode,
-    });
+    const index = this.products.findIndex(p => p.id === this.selectedProduct!.id);
+    if (index !== -1) {
+      this.products[index] = {
+        ...this.products[index],
+        status: 'processing',
+        packageType: this.packageType,
+        containerBarcode: this.containerBarcode,
+      };
+    }
 
     this.showModal = false;
     this.packageType = '';
