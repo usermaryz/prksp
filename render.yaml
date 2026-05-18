@@ -1,37 +1,8 @@
-# Blueprint для https://render.com (бесплатный tier с ограничениями).
-# После подключения репозитория: New → Blueprint → выбрать ветку.
+# Render Blueprint: для микросервисного стека удобнее VPS + docker compose.
+# См. docker-compose.prod.yml и README.md.
 #
-# URL сервисов: https://<имя-сервиса>.onrender.com
-# Если имя prksp-api / prksp-web занято — переименуйте сервисы и
-# синхронно поправьте CORS_EXTRA_ORIGINS и REACT_APP_API_URL ниже.
-#
-# SQLite на бесплатном web-сервисе без диска: данные могут обнуляться
-# при «засыпании» инстанса — для курсовой обычно допустимо (см. docs).
+# Ниже — заглушка; полный деплой 6 сервисов + Postgres на free tier не поддерживается одним web-сервисом.
 
 version: "1"
 
-services:
-  - type: web
-    name: prksp-api
-    runtime: docker
-    region: frankfurt
-    plan: free
-    rootDir: backend_fastapi
-    dockerfilePath: Dockerfile
-    healthCheckPath: /health
-    envVars:
-      - key: SECRET_KEY
-        generateValue: true
-      - key: CORS_EXTRA_ORIGINS
-        value: https://prksp-web.onrender.com
-
-  - type: web
-    name: prksp-web
-    runtime: docker
-    region: frankfurt
-    plan: free
-    rootDir: wms_site
-    dockerfilePath: Dockerfile
-    envVars:
-      - key: REACT_APP_API_URL
-        value: https://prksp-api.onrender.com/api
+services: []

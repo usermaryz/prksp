@@ -1,0 +1,3032 @@
+openapi: 3.0.3
+info:
+  title: WMS API - Warehouse Management System
+  description: |
+    API контракты для системы управления складом (WMS).
+    Включает управление товарами, заказами, размещением, пользователями и логистикой доставки.
+  version: 1.0.0
+  contact:
+    name: WMS Development Team
+
+servers:
+  - url: http://localhost:3002/api
+    description: Development server (WMS API)
+  - url: http://localhost:3001/api
+    description: Mock server (wms_site/server)
+
+tags:
+  - name: Auth
+    description: Авторизация и аутентификация
+  - name: Users
+    description: Управление пользователями
+  - name: Products
+    description: Управление товарами
+  - name: Placement
+    description: Размещение товаров на складе
+  - name: Orders
+    description: Управление заказами
+  - name: Picking
+    description: Сборка заказов
+  - name: Dashboard
+    description: Статистика и метрики
+  - name: Logistics
+    description: Логистика и доставка
+  - name: Delivery
+    description: Интеграция с сервисом доставки
+
+# =============================================================================
+# PATHS
+# =============================================================================
+paths:
+  # ---------------------------------------------------------------------------
+  # AUTH
+  # ---------------------------------------------------------------------------
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Вход в систему
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Успешный вход
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          description: Неверные учетные данные
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Выход из системы
+      operationId: logout
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Успешный выход
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Обновление токена
+      operationId: refreshToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refreshToken:
+                  type: string
+      responses:
+        '200':
+          description: Токен обновлен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+
+  # ---------------------------------------------------------------------------
+  # USERS
+  # ---------------------------------------------------------------------------
+  /users:
+    get:
+      tags: [Users]
+      summary: Получить список пользователей
+      operationId: getUsers
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - name: role
+          in: query
+          schema:
+            type: string
+            enum: [admin, manager, picker, driver]
+      responses:
+        '200':
+          description: Список пользователей
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsersListResponse'
+
+    post:
+      tags: [Users]
+      summary: Создать пользователя
+      operationId: createUser
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+      responses:
+        '201':
+          description: Пользователь создан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+
+  /users/{userId}:
+    get:
+      tags: [Users]
+      summary: Получить пользователя по ID
+      operationId: getUserById
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserIdParam'
+      responses:
+        '200':
+          description: Данные пользователя
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [Users]
+      summary: Обновить пользователя
+      operationId: updateUser
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserRequest'
+      responses:
+        '200':
+          description: Пользователь обновлен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+
+    delete:
+      tags: [Users]
+      summary: Удалить пользователя
+      operationId: deleteUser
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserIdParam'
+      responses:
+        '204':
+          description: Пользователь удален
+
+  /users/me:
+    get:
+      tags: [Users]
+      summary: Получить текущего пользователя
+      operationId: getCurrentUser
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Данные текущего пользователя
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+
+  /users/me/activities:
+    get:
+      tags: [Users]
+      summary: Получить активности текущего пользователя
+      operationId: getUserActivities
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: Список активностей
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/UserActivity'
+
+  # ---------------------------------------------------------------------------
+  # PRODUCTS
+  # ---------------------------------------------------------------------------
+  /products:
+    get:
+      tags: [Products]
+      summary: Получить список товаров
+      operationId: getProducts
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/SearchParam'
+        - name: category
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/ProductStatus'
+        - name: brand
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Список товаров
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductsListResponse'
+
+    post:
+      tags: [Products]
+      summary: Создать товар
+      operationId: createProduct
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProductRequest'
+      responses:
+        '201':
+          description: Товар создан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+
+  /products/{productId}:
+    get:
+      tags: [Products]
+      summary: Получить товар по ID
+      operationId: getProductById
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductIdParam'
+      responses:
+        '200':
+          description: Данные товара
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [Products]
+      summary: Обновить товар
+      operationId: updateProduct
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProductRequest'
+      responses:
+        '200':
+          description: Товар обновлен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+
+    delete:
+      tags: [Products]
+      summary: Удалить товар
+      operationId: deleteProduct
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductIdParam'
+      responses:
+        '204':
+          description: Товар удален
+
+  /products/{productId}/status:
+    patch:
+      tags: [Products]
+      summary: Обновить статус товара
+      operationId: updateProductStatus
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  $ref: '#/components/schemas/ProductStatus'
+      responses:
+        '200':
+          description: Статус обновлен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+
+  /products/search:
+    get:
+      tags: [Products]
+      summary: Поиск товаров
+      operationId: searchProducts
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 2
+      responses:
+        '200':
+          description: Результаты поиска
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Product'
+
+  /products/barcode/{barcode}:
+    get:
+      tags: [Products]
+      summary: Получить товар по штрихкоду
+      operationId: getProductByBarcode
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: barcode
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Данные товара
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /products/categories:
+    get:
+      tags: [Products]
+      summary: Получить список категорий
+      operationId: getCategories
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Список категорий
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Category'
+
+  # ---------------------------------------------------------------------------
+  # PLACEMENT
+  # ---------------------------------------------------------------------------
+  /placement/products:
+    get:
+      tags: [Placement]
+      summary: Получить товары для размещения
+      operationId: getPlacementProducts
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/PlacementStatus'
+      responses:
+        '200':
+          description: Список товаров для размещения
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Product'
+
+  /placement/products/{productId}:
+    patch:
+      tags: [Placement]
+      summary: Обновить местоположение товара
+      operationId: updateProductLocation
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [location]
+              properties:
+                location:
+                  type: string
+                  example: "A-12-3"
+                packageType:
+                  type: string
+                  example: "Box"
+                containerBarcode:
+                  type: string
+                  example: "CNT123456"
+      responses:
+        '200':
+          description: Местоположение обновлено
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+
+  /placement/zones:
+    get:
+      tags: [Placement]
+      summary: Получить зоны размещения
+      operationId: getPlacementZones
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Список зон
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PlacementZone'
+
+    post:
+      tags: [Placement]
+      summary: Создать зону размещения
+      operationId: createPlacementZone
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateZoneRequest'
+      responses:
+        '201':
+          description: Зона создана
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlacementZone'
+
+  /placement/zones/{zoneId}:
+    patch:
+      tags: [Placement]
+      summary: Обновить зону размещения
+      operationId: updatePlacementZone
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: zoneId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateZoneRequest'
+      responses:
+        '200':
+          description: Зона обновлена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlacementZone'
+
+  /placement/history:
+    get:
+      tags: [Placement]
+      summary: История размещений
+      operationId: getPlacementHistory
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: История размещений
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlacementHistoryResponse'
+
+  # ---------------------------------------------------------------------------
+  # ORDERS
+  # ---------------------------------------------------------------------------
+  /orders:
+    get:
+      tags: [Orders]
+      summary: Получить список заказов
+      operationId: getOrders
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/OrderStatus'
+        - name: priority
+          in: query
+          schema:
+            $ref: '#/components/schemas/OrderPriority'
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Список заказов
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrdersListResponse'
+
+    post:
+      tags: [Orders]
+      summary: Создать заказ
+      operationId: createOrder
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderRequest'
+      responses:
+        '201':
+          description: Заказ создан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+
+  /orders/{orderId}:
+    get:
+      tags: [Orders]
+      summary: Получить заказ по ID
+      operationId: getOrderById
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrderIdParam'
+      responses:
+        '200':
+          description: Данные заказа
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [Orders]
+      summary: Обновить заказ
+      operationId: updateOrder
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrderIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateOrderRequest'
+      responses:
+        '200':
+          description: Заказ обновлен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+
+    delete:
+      tags: [Orders]
+      summary: Удалить заказ
+      operationId: deleteOrder
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrderIdParam'
+      responses:
+        '204':
+          description: Заказ удален
+
+  /orders/{orderId}/status:
+    patch:
+      tags: [Orders]
+      summary: Обновить статус заказа
+      operationId: updateOrderStatus
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrderIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  $ref: '#/components/schemas/OrderStatus'
+      responses:
+        '200':
+          description: Статус обновлен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+
+  /orders/{orderId}/products:
+    post:
+      tags: [Orders]
+      summary: Добавить товар в заказ
+      operationId: addProductToOrder
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrderIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [productId, quantity]
+              properties:
+                productId:
+                  type: integer
+                quantity:
+                  type: integer
+                  minimum: 1
+      responses:
+        '200':
+          description: Товар добавлен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+
+  /orders/{orderId}/products/{productId}:
+    delete:
+      tags: [Orders]
+      summary: Удалить товар из заказа
+      operationId: removeProductFromOrder
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrderIdParam'
+        - $ref: '#/components/parameters/ProductIdParam'
+      responses:
+        '200':
+          description: Товар удален
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+
+  /orders/search:
+    get:
+      tags: [Orders]
+      summary: Поиск заказов
+      operationId: searchOrders
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Результаты поиска
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Order'
+
+  # ---------------------------------------------------------------------------
+  # PICKING (Сборка заказов)
+  # ---------------------------------------------------------------------------
+  /picking/orders:
+    get:
+      tags: [Picking]
+      summary: Получить заказы для сборки
+      operationId: getPickingOrders
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/OrderStatus'
+        - name: assignedTo
+          in: query
+          schema:
+            type: string
+        - name: priority
+          in: query
+          schema:
+            $ref: '#/components/schemas/OrderPriority'
+      responses:
+        '200':
+          description: Список заказов для сборки
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PickingOrder'
+
+  /picking/orders/{orderId}:
+    get:
+      tags: [Picking]
+      summary: Получить заказ для сборки
+      operationId: getPickingOrder
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrderIdParam'
+      responses:
+        '200':
+          description: Данные заказа для сборки
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PickingOrder'
+
+  /picking/orders/{orderId}/status:
+    patch:
+      tags: [Picking]
+      summary: Обновить статус сборки заказа
+      operationId: updatePickingOrderStatus
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrderIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  $ref: '#/components/schemas/OrderStatus'
+      responses:
+        '200':
+          description: Статус обновлен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PickingOrder'
+
+  /picking/orders/{orderId}/assign:
+    patch:
+      tags: [Picking]
+      summary: Назначить сборщика на заказ
+      operationId: assignPicker
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrderIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [assignee]
+              properties:
+                assignee:
+                  type: string
+                  description: ID или имя сборщика
+      responses:
+        '200':
+          description: Сборщик назначен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PickingOrder'
+
+  /picking/orders/{orderId}/products/{productId}/picked:
+    patch:
+      tags: [Picking]
+      summary: Отметить товар как собранный
+      operationId: markProductAsPicked
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrderIdParam'
+        - $ref: '#/components/parameters/ProductIdParam'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                picked:
+                  type: boolean
+                  default: true
+      responses:
+        '200':
+          description: Товар отмечен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PickingOrder'
+
+  /picking/orders/search:
+    get:
+      tags: [Picking]
+      summary: Поиск заказов для сборки
+      operationId: searchPickingOrders
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Результаты поиска
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PickingOrder'
+
+  # ---------------------------------------------------------------------------
+  # DASHBOARD
+  # ---------------------------------------------------------------------------
+  /dashboard/metrics:
+    get:
+      tags: [Dashboard]
+      summary: Получить метрики дашборда
+      operationId: getDashboardMetrics
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Метрики дашборда
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DashboardMetric'
+
+  /dashboard/stats:
+    get:
+      tags: [Dashboard]
+      summary: Получить статистику
+      operationId: getDashboardStats
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: period
+          in: query
+          schema:
+            type: string
+            enum: [day, week, month, year]
+            default: day
+      responses:
+        '200':
+          description: Статистика
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardStats'
+
+  /dashboard/charts/orders:
+    get:
+      tags: [Dashboard]
+      summary: Данные для графика заказов
+      operationId: getOrdersChartData
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: period
+          in: query
+          schema:
+            type: string
+            enum: [week, month, year]
+            default: week
+      responses:
+        '200':
+          description: Данные графика
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChartData'
+
+  /dashboard/charts/inventory:
+    get:
+      tags: [Dashboard]
+      summary: Данные для графика инвентаря
+      operationId: getInventoryChartData
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Данные графика
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChartData'
+
+  # ---------------------------------------------------------------------------
+  # LOGISTICS (Логистика)
+  # ---------------------------------------------------------------------------
+  /logistics/shipments:
+    get:
+      tags: [Logistics]
+      summary: Получить список отправлений
+      operationId: getShipments
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/ShipmentStatus'
+        - name: deliveryMethod
+          in: query
+          schema:
+            $ref: '#/components/schemas/DeliveryMethod'
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Список отправлений
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipmentsListResponse'
+
+    post:
+      tags: [Logistics]
+      summary: Создать отправление
+      operationId: createShipment
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateShipmentRequest'
+      responses:
+        '201':
+          description: Отправление создано
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Shipment'
+
+  /logistics/shipments/{shipmentId}:
+    get:
+      tags: [Logistics]
+      summary: Получить отправление по ID
+      operationId: getShipmentById
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ShipmentIdParam'
+      responses:
+        '200':
+          description: Данные отправления
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Shipment'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [Logistics]
+      summary: Обновить отправление
+      operationId: updateShipment
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ShipmentIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateShipmentRequest'
+      responses:
+        '200':
+          description: Отправление обновлено
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Shipment'
+
+    delete:
+      tags: [Logistics]
+      summary: Отменить отправление
+      operationId: cancelShipment
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ShipmentIdParam'
+      responses:
+        '200':
+          description: Отправление отменено
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Shipment'
+
+  /logistics/shipments/{shipmentId}/status:
+    patch:
+      tags: [Logistics]
+      summary: Обновить статус отправления
+      operationId: updateShipmentStatus
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ShipmentIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  $ref: '#/components/schemas/ShipmentStatus'
+                comment:
+                  type: string
+                  description: Комментарий к изменению статуса
+      responses:
+        '200':
+          description: Статус обновлен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Shipment'
+
+  /logistics/shipments/{shipmentId}/tracking:
+    get:
+      tags: [Logistics]
+      summary: Получить историю отслеживания
+      operationId: getShipmentTracking
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ShipmentIdParam'
+      responses:
+        '200':
+          description: История отслеживания
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TrackingEvent'
+
+    post:
+      tags: [Logistics]
+      summary: Добавить событие отслеживания
+      operationId: addTrackingEvent
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ShipmentIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTrackingEventRequest'
+      responses:
+        '201':
+          description: Событие добавлено
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrackingEvent'
+
+  /logistics/addresses:
+    get:
+      tags: [Logistics]
+      summary: Получить сохраненные адреса
+      operationId: getAddresses
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [pickup, delivery, warehouse]
+      responses:
+        '200':
+          description: Список адресов
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Address'
+
+    post:
+      tags: [Logistics]
+      summary: Создать адрес
+      operationId: createAddress
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAddressRequest'
+      responses:
+        '201':
+          description: Адрес создан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Address'
+
+  /logistics/addresses/{addressId}:
+    patch:
+      tags: [Logistics]
+      summary: Обновить адрес
+      operationId: updateAddress
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: addressId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAddressRequest'
+      responses:
+        '200':
+          description: Адрес обновлен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Address'
+
+    delete:
+      tags: [Logistics]
+      summary: Удалить адрес
+      operationId: deleteAddress
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: addressId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Адрес удален
+
+  /logistics/delivery-methods:
+    get:
+      tags: [Logistics]
+      summary: Получить доступные способы доставки
+      operationId: getDeliveryMethods
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Список способов доставки
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DeliveryMethodInfo'
+
+  /logistics/calculate-cost:
+    post:
+      tags: [Logistics]
+      summary: Рассчитать стоимость доставки
+      operationId: calculateDeliveryCost
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CalculateDeliveryCostRequest'
+      responses:
+        '200':
+          description: Расчет стоимости
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeliveryCostResponse'
+
+  /logistics/routes:
+    get:
+      tags: [Logistics]
+      summary: Получить маршруты доставки
+      operationId: getDeliveryRoutes
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: driverId
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Список маршрутов
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DeliveryRoute'
+
+    post:
+      tags: [Logistics]
+      summary: Создать маршрут доставки
+      operationId: createDeliveryRoute
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDeliveryRouteRequest'
+      responses:
+        '201':
+          description: Маршрут создан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeliveryRoute'
+
+  /logistics/routes/{routeId}:
+    get:
+      tags: [Logistics]
+      summary: Получить маршрут по ID
+      operationId: getDeliveryRoute
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: routeId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Данные маршрута
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeliveryRoute'
+
+    patch:
+      tags: [Logistics]
+      summary: Обновить маршрут
+      operationId: updateDeliveryRoute
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: routeId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateDeliveryRouteRequest'
+      responses:
+        '200':
+          description: Маршрут обновлен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeliveryRoute'
+
+  # ---------------------------------------------------------------------------
+  # DELIVERY (Интеграция со сторонним сервисом)
+  # ---------------------------------------------------------------------------
+  /delivery/providers:
+    get:
+      tags: [Delivery]
+      summary: Получить список провайдеров доставки
+      operationId: getDeliveryProviders
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Список провайдеров
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DeliveryProvider'
+
+  /delivery/create:
+    post:
+      tags: [Delivery]
+      summary: Создать заявку на доставку (внешний сервис)
+      description: |
+        Создает заявку на доставку через внешний сервис доставки.
+        Передает данные адреса, выбранный способ доставки и информацию о грузе.
+      operationId: createDeliveryRequest
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDeliveryRequest'
+      responses:
+        '201':
+          description: Заявка на доставку создана
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeliveryResponse'
+        '400':
+          description: Ошибка валидации
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /delivery/{deliveryId}/track:
+    get:
+      tags: [Delivery]
+      summary: Получить статус доставки от внешнего сервиса
+      description: |
+        Запрашивает текущий статус доставки у внешнего провайдера.
+      operationId: trackDelivery
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: deliveryId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: ID доставки во внешнем сервисе
+      responses:
+        '200':
+          description: Статус доставки
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeliveryTrackingResponse'
+
+  /delivery/{deliveryId}/cancel:
+    post:
+      tags: [Delivery]
+      summary: Отменить доставку во внешнем сервисе
+      operationId: cancelDelivery
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: deliveryId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  description: Причина отмены
+      responses:
+        '200':
+          description: Доставка отменена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeliveryResponse'
+
+  /delivery/webhook:
+    post:
+      tags: [Delivery]
+      summary: Webhook для получения обновлений от внешнего сервиса
+      description: |
+        Эндпоинт для получения уведомлений о изменении статуса доставки
+        от внешнего сервиса доставки.
+      operationId: deliveryWebhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeliveryWebhookPayload'
+      responses:
+        '200':
+          description: Webhook обработан
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+
+  /delivery/rates:
+    post:
+      tags: [Delivery]
+      summary: Получить тарифы от провайдеров доставки
+      description: |
+        Запрашивает тарифы на доставку у всех доступных провайдеров
+        для сравнения цен и сроков.
+      operationId: getDeliveryRates
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GetDeliveryRatesRequest'
+      responses:
+        '200':
+          description: Тарифы от провайдеров
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DeliveryRate'
+
+# =============================================================================
+# COMPONENTS
+# =============================================================================
+components:
+  # ---------------------------------------------------------------------------
+  # Security Schemes
+  # ---------------------------------------------------------------------------
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  # ---------------------------------------------------------------------------
+  # Parameters
+  # ---------------------------------------------------------------------------
+  parameters:
+    PageParam:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+
+    LimitParam:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+
+    SearchParam:
+      name: search
+      in: query
+      schema:
+        type: string
+
+    UserIdParam:
+      name: userId
+      in: path
+      required: true
+      schema:
+        type: integer
+
+    ProductIdParam:
+      name: productId
+      in: path
+      required: true
+      schema:
+        type: integer
+
+    OrderIdParam:
+      name: orderId
+      in: path
+      required: true
+      schema:
+        type: integer
+
+    ShipmentIdParam:
+      name: shipmentId
+      in: path
+      required: true
+      schema:
+        type: integer
+
+  # ---------------------------------------------------------------------------
+  # Responses
+  # ---------------------------------------------------------------------------
+  responses:
+    NotFound:
+      description: Ресурс не найден
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    Unauthorized:
+      description: Требуется авторизация
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    ValidationError:
+      description: Ошибка валидации
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationError'
+
+  # ---------------------------------------------------------------------------
+  # Schemas
+  # ---------------------------------------------------------------------------
+  schemas:
+    # --- Common ---
+    Error:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+        code:
+          type: string
+        details:
+          type: object
+
+    ValidationError:
+      type: object
+      properties:
+        message:
+          type: string
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+              message:
+                type: string
+
+    MessageResponse:
+      type: object
+      properties:
+        message:
+          type: string
+
+    PaginationMeta:
+      type: object
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+        totalPages:
+          type: integer
+
+    # --- Auth ---
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          minLength: 3
+        password:
+          type: string
+          minLength: 6
+
+    LoginResponse:
+      type: object
+      properties:
+        user:
+          $ref: '#/components/schemas/UserInfo'
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+        expiresIn:
+          type: integer
+
+    TokenResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+        expiresIn:
+          type: integer
+
+    UserInfo:
+      type: object
+      properties:
+        id:
+          type: integer
+        fullName:
+          type: string
+        role:
+          type: string
+        email:
+          type: string
+
+    # --- Users ---
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+        username:
+          type: string
+        fullName:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+        role:
+          type: string
+          enum: [admin, manager, picker, driver]
+        avatar:
+          type: string
+        verified:
+          type: boolean
+        premium:
+          type: boolean
+        location:
+          type: string
+        timezone:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    UserProfile:
+      allOf:
+        - $ref: '#/components/schemas/User'
+        - type: object
+          properties:
+            stats:
+              $ref: '#/components/schemas/UserStats'
+            activities:
+              type: array
+              items:
+                $ref: '#/components/schemas/UserActivity'
+
+    UserStats:
+      type: object
+      properties:
+        totalOrders:
+          type: integer
+        pendingShipments:
+          type: integer
+        completedTasks:
+          type: integer
+        efficiency:
+          type: number
+          format: float
+
+    UserActivity:
+      type: object
+      properties:
+        id:
+          type: integer
+        action:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [success, warning, info, error]
+        icon:
+          type: string
+
+    UsersListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/User'
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    CreateUserRequest:
+      type: object
+      required: [username, password, fullName, email, role]
+      properties:
+        username:
+          type: string
+          minLength: 3
+        password:
+          type: string
+          minLength: 6
+        fullName:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        role:
+          type: string
+          enum: [admin, manager, picker, driver]
+
+    UpdateUserRequest:
+      type: object
+      properties:
+        fullName:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        role:
+          type: string
+          enum: [admin, manager, picker, driver]
+        location:
+          type: string
+        timezone:
+          type: string
+
+    # --- Products ---
+    ProductStatus:
+      type: string
+      enum: [pending, processing, completed, rejected]
+
+    Product:
+      type: object
+      properties:
+        id:
+          type: integer
+        barcode:
+          type: string
+        name:
+          type: string
+        brand:
+          type: string
+        country:
+          type: string
+        category:
+          type: string
+        image:
+          type: string
+        weight:
+          type: string
+        dimensions:
+          type: string
+        status:
+          $ref: '#/components/schemas/ProductStatus'
+        location:
+          type: string
+        packageType:
+          type: string
+        containerBarcode:
+          type: string
+        quantity:
+          type: integer
+        price:
+          type: number
+          format: float
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ProductsListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Product'
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    CreateProductRequest:
+      type: object
+      required: [barcode, name, category]
+      properties:
+        barcode:
+          type: string
+        name:
+          type: string
+        brand:
+          type: string
+        country:
+          type: string
+        category:
+          type: string
+        image:
+          type: string
+        weight:
+          type: string
+        dimensions:
+          type: string
+        quantity:
+          type: integer
+        price:
+          type: number
+
+    UpdateProductRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        brand:
+          type: string
+        country:
+          type: string
+        category:
+          type: string
+        image:
+          type: string
+        weight:
+          type: string
+        dimensions:
+          type: string
+        status:
+          $ref: '#/components/schemas/ProductStatus'
+        location:
+          type: string
+        quantity:
+          type: integer
+        price:
+          type: number
+
+    Category:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        slug:
+          type: string
+        parentId:
+          type: integer
+          nullable: true
+
+    # --- Placement ---
+    PlacementStatus:
+      type: string
+      enum: [pending, processing, completed]
+
+    PlacementZone:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        capacity:
+          type: integer
+        currentLoad:
+          type: integer
+        status:
+          type: string
+          enum: [available, full, maintenance]
+
+    CreateZoneRequest:
+      type: object
+      required: [name, capacity]
+      properties:
+        name:
+          type: string
+        capacity:
+          type: integer
+
+    UpdateZoneRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        capacity:
+          type: integer
+        status:
+          type: string
+          enum: [available, full, maintenance]
+
+    PlacementRecord:
+      type: object
+      properties:
+        id:
+          type: integer
+        productId:
+          type: integer
+        productName:
+          type: string
+        barcode:
+          type: string
+        location:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        quantity:
+          type: integer
+        placedBy:
+          type: string
+        status:
+          type: string
+
+    PlacementHistoryResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlacementRecord'
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    # --- Orders ---
+    OrderStatus:
+      type: string
+      enum: [pending, in_progress, completed, cancelled, shipped, delivered]
+
+    OrderPriority:
+      type: string
+      enum: [low, medium, high, urgent]
+
+    Order:
+      type: object
+      properties:
+        id:
+          type: integer
+        orderNumber:
+          type: string
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        priority:
+          $ref: '#/components/schemas/OrderPriority'
+        products:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderProduct'
+        customerId:
+          type: integer
+        customerName:
+          type: string
+        customerEmail:
+          type: string
+        shippingAddress:
+          $ref: '#/components/schemas/Address'
+        assignedTo:
+          type: string
+        totalAmount:
+          type: number
+          format: float
+        notes:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    OrderProduct:
+      type: object
+      properties:
+        id:
+          type: integer
+        product:
+          $ref: '#/components/schemas/Product'
+        quantity:
+          type: integer
+        picked:
+          type: boolean
+        location:
+          type: string
+
+    OrdersListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Order'
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    CreateOrderRequest:
+      type: object
+      required: [products]
+      properties:
+        customerId:
+          type: integer
+        customerName:
+          type: string
+        customerEmail:
+          type: string
+        products:
+          type: array
+          items:
+            type: object
+            required: [productId, quantity]
+            properties:
+              productId:
+                type: integer
+              quantity:
+                type: integer
+                minimum: 1
+        priority:
+          $ref: '#/components/schemas/OrderPriority'
+        shippingAddress:
+          $ref: '#/components/schemas/CreateAddressRequest'
+        notes:
+          type: string
+
+    UpdateOrderRequest:
+      type: object
+      properties:
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        priority:
+          $ref: '#/components/schemas/OrderPriority'
+        assignedTo:
+          type: string
+        notes:
+          type: string
+        shippingAddress:
+          $ref: '#/components/schemas/UpdateAddressRequest'
+
+    # --- Picking ---
+    PickingOrder:
+      allOf:
+        - $ref: '#/components/schemas/Order'
+        - type: object
+          properties:
+            pickingStartedAt:
+              type: string
+              format: date-time
+            pickingCompletedAt:
+              type: string
+              format: date-time
+            pickedItems:
+              type: integer
+            totalItems:
+              type: integer
+
+    # --- Dashboard ---
+    DashboardMetric:
+      type: object
+      properties:
+        icon:
+          type: string
+        label:
+          type: string
+        value:
+          type: string
+        change:
+          type: string
+        changeType:
+          type: string
+          enum: [up, down, neutral]
+        color:
+          type: string
+
+    DashboardStats:
+      type: object
+      properties:
+        totalProducts:
+          type: integer
+        totalOrders:
+          type: integer
+        pendingOrders:
+          type: integer
+        completedOrders:
+          type: integer
+        totalShipments:
+          type: integer
+        inTransitShipments:
+          type: integer
+        warehouseCapacity:
+          type: number
+        efficiency:
+          type: number
+
+    ChartData:
+      type: object
+      properties:
+        labels:
+          type: array
+          items:
+            type: string
+        datasets:
+          type: array
+          items:
+            type: object
+            properties:
+              label:
+                type: string
+              data:
+                type: array
+                items:
+                  type: number
+              backgroundColor:
+                type: string
+              borderColor:
+                type: string
+
+    # --- Logistics ---
+    ShipmentStatus:
+      type: string
+      enum:
+        - created           # Создано
+        - pending_pickup    # Ожидает забора
+        - picked_up         # Забрано
+        - in_transit        # В пути
+        - out_for_delivery  # Передано курьеру
+        - delivered         # Доставлено
+        - failed            # Ошибка доставки
+        - returned          # Возвращено
+        - cancelled         # Отменено
+
+    DeliveryMethod:
+      type: string
+      enum:
+        - courier           # Курьерская доставка
+        - truck             # Фура/грузовик
+        - express           # Экспресс-доставка
+        - standard          # Стандартная доставка
+        - pickup            # Самовывоз
+
+    Shipment:
+      type: object
+      properties:
+        id:
+          type: integer
+        shipmentNumber:
+          type: string
+          example: "SHP-2024-00001"
+        orderId:
+          type: integer
+        orderNumber:
+          type: string
+        status:
+          $ref: '#/components/schemas/ShipmentStatus'
+        deliveryMethod:
+          $ref: '#/components/schemas/DeliveryMethod'
+        providerId:
+          type: integer
+          description: ID внешнего провайдера доставки
+        providerName:
+          type: string
+        externalTrackingId:
+          type: string
+          description: Трекинг-номер от внешнего сервиса
+        pickupAddress:
+          $ref: '#/components/schemas/Address'
+        deliveryAddress:
+          $ref: '#/components/schemas/Address'
+        senderInfo:
+          $ref: '#/components/schemas/ContactInfo'
+        receiverInfo:
+          $ref: '#/components/schemas/ContactInfo'
+        packages:
+          type: array
+          items:
+            $ref: '#/components/schemas/Package'
+        weight:
+          type: number
+          format: float
+          description: Общий вес в кг
+        dimensions:
+          $ref: '#/components/schemas/Dimensions'
+        estimatedDeliveryDate:
+          type: string
+          format: date
+        actualDeliveryDate:
+          type: string
+          format: date
+        cost:
+          type: number
+          format: float
+        currency:
+          type: string
+          default: "RUB"
+        notes:
+          type: string
+        trackingHistory:
+          type: array
+          items:
+            $ref: '#/components/schemas/TrackingEvent'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ShipmentsListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Shipment'
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    CreateShipmentRequest:
+      type: object
+      required:
+        - orderId
+        - deliveryMethod
+        - deliveryAddress
+        - receiverInfo
+      properties:
+        orderId:
+          type: integer
+        deliveryMethod:
+          $ref: '#/components/schemas/DeliveryMethod'
+        providerId:
+          type: integer
+          description: ID предпочтительного провайдера (опционально)
+        pickupAddress:
+          $ref: '#/components/schemas/CreateAddressRequest'
+        deliveryAddress:
+          $ref: '#/components/schemas/CreateAddressRequest'
+        senderInfo:
+          $ref: '#/components/schemas/ContactInfo'
+        receiverInfo:
+          $ref: '#/components/schemas/ContactInfo'
+        packages:
+          type: array
+          items:
+            $ref: '#/components/schemas/CreatePackageRequest'
+        scheduledPickupDate:
+          type: string
+          format: date-time
+        notes:
+          type: string
+
+    UpdateShipmentRequest:
+      type: object
+      properties:
+        deliveryMethod:
+          $ref: '#/components/schemas/DeliveryMethod'
+        deliveryAddress:
+          $ref: '#/components/schemas/UpdateAddressRequest'
+        receiverInfo:
+          $ref: '#/components/schemas/ContactInfo'
+        scheduledPickupDate:
+          type: string
+          format: date-time
+        notes:
+          type: string
+
+    # --- Address ---
+    Address:
+      type: object
+      properties:
+        id:
+          type: integer
+        type:
+          type: string
+          enum: [pickup, delivery, warehouse, billing]
+        country:
+          type: string
+          example: "Россия"
+        region:
+          type: string
+          example: "Московская область"
+        city:
+          type: string
+          example: "Москва"
+        street:
+          type: string
+          example: "ул. Ленина"
+        building:
+          type: string
+          example: "15"
+        apartment:
+          type: string
+          example: "42"
+        postalCode:
+          type: string
+          example: "123456"
+        latitude:
+          type: number
+          format: float
+        longitude:
+          type: number
+          format: float
+        fullAddress:
+          type: string
+          description: Полный адрес одной строкой
+        isDefault:
+          type: boolean
+
+    CreateAddressRequest:
+      type: object
+      required: [city, street, building, postalCode]
+      properties:
+        type:
+          type: string
+          enum: [pickup, delivery, warehouse, billing]
+        country:
+          type: string
+          default: "Россия"
+        region:
+          type: string
+        city:
+          type: string
+        street:
+          type: string
+        building:
+          type: string
+        apartment:
+          type: string
+        postalCode:
+          type: string
+        latitude:
+          type: number
+        longitude:
+          type: number
+        isDefault:
+          type: boolean
+
+    UpdateAddressRequest:
+      type: object
+      properties:
+        country:
+          type: string
+        region:
+          type: string
+        city:
+          type: string
+        street:
+          type: string
+        building:
+          type: string
+        apartment:
+          type: string
+        postalCode:
+          type: string
+        latitude:
+          type: number
+        longitude:
+          type: number
+        isDefault:
+          type: boolean
+
+    ContactInfo:
+      type: object
+      properties:
+        name:
+          type: string
+          example: "Иванов Иван Иванович"
+        phone:
+          type: string
+          example: "+7 (999) 123-45-67"
+        email:
+          type: string
+          format: email
+        company:
+          type: string
+          example: "ООО Компания"
+
+    # --- Package ---
+    Package:
+      type: object
+      properties:
+        id:
+          type: integer
+        barcode:
+          type: string
+        weight:
+          type: number
+          format: float
+          description: Вес в кг
+        dimensions:
+          $ref: '#/components/schemas/Dimensions'
+        contents:
+          type: string
+          description: Описание содержимого
+        declaredValue:
+          type: number
+          format: float
+          description: Объявленная ценность
+
+    CreatePackageRequest:
+      type: object
+      properties:
+        weight:
+          type: number
+        dimensions:
+          $ref: '#/components/schemas/Dimensions'
+        contents:
+          type: string
+        declaredValue:
+          type: number
+
+    Dimensions:
+      type: object
+      properties:
+        length:
+          type: number
+          format: float
+          description: Длина в см
+        width:
+          type: number
+          format: float
+          description: Ширина в см
+        height:
+          type: number
+          format: float
+          description: Высота в см
+
+    # --- Tracking ---
+    TrackingEvent:
+      type: object
+      properties:
+        id:
+          type: integer
+        shipmentId:
+          type: integer
+        status:
+          $ref: '#/components/schemas/ShipmentStatus'
+        location:
+          type: string
+          example: "Москва, Сортировочный центр"
+        description:
+          type: string
+          example: "Посылка прибыла в сортировочный центр"
+        timestamp:
+          type: string
+          format: date-time
+        source:
+          type: string
+          enum: [internal, external]
+          description: Источник события (внутренний или от внешнего провайдера)
+
+    CreateTrackingEventRequest:
+      type: object
+      required: [status, description]
+      properties:
+        status:
+          $ref: '#/components/schemas/ShipmentStatus'
+        location:
+          type: string
+        description:
+          type: string
+
+    # --- Delivery Methods Info ---
+    DeliveryMethodInfo:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+          example: "Курьерская доставка"
+        description:
+          type: string
+          example: "Доставка курьером до двери"
+        method:
+          $ref: '#/components/schemas/DeliveryMethod'
+        estimatedDays:
+          type: object
+          properties:
+            min:
+              type: integer
+            max:
+              type: integer
+        maxWeight:
+          type: number
+          description: Максимальный вес в кг
+        maxDimensions:
+          $ref: '#/components/schemas/Dimensions'
+        priceRange:
+          type: object
+          properties:
+            min:
+              type: number
+            max:
+              type: number
+            currency:
+              type: string
+        available:
+          type: boolean
+
+    # --- Delivery Cost Calculation ---
+    CalculateDeliveryCostRequest:
+      type: object
+      required:
+        - pickupAddress
+        - deliveryAddress
+        - deliveryMethod
+      properties:
+        pickupAddress:
+          $ref: '#/components/schemas/CreateAddressRequest'
+        deliveryAddress:
+          $ref: '#/components/schemas/CreateAddressRequest'
+        deliveryMethod:
+          $ref: '#/components/schemas/DeliveryMethod'
+        packages:
+          type: array
+          items:
+            $ref: '#/components/schemas/CreatePackageRequest'
+        totalWeight:
+          type: number
+        declaredValue:
+          type: number
+
+    DeliveryCostResponse:
+      type: object
+      properties:
+        deliveryMethod:
+          $ref: '#/components/schemas/DeliveryMethod'
+        cost:
+          type: number
+          format: float
+        currency:
+          type: string
+        estimatedDays:
+          type: integer
+        estimatedDeliveryDate:
+          type: string
+          format: date
+        breakdown:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              cost:
+                type: number
+
+    # --- Delivery Routes ---
+    DeliveryRoute:
+      type: object
+      properties:
+        id:
+          type: integer
+        routeNumber:
+          type: string
+        date:
+          type: string
+          format: date
+        driverId:
+          type: integer
+        driverName:
+          type: string
+        vehicleId:
+          type: integer
+        vehicleNumber:
+          type: string
+        status:
+          type: string
+          enum: [planned, in_progress, completed, cancelled]
+        stops:
+          type: array
+          items:
+            $ref: '#/components/schemas/RouteStop'
+        totalDistance:
+          type: number
+          description: Общая дистанция в км
+        estimatedDuration:
+          type: integer
+          description: Ожидаемая продолжительность в минутах
+        startTime:
+          type: string
+          format: date-time
+        endTime:
+          type: string
+          format: date-time
+
+    RouteStop:
+      type: object
+      properties:
+        id:
+          type: integer
+        order:
+          type: integer
+          description: Порядковый номер остановки
+        shipmentId:
+          type: integer
+        address:
+          $ref: '#/components/schemas/Address'
+        type:
+          type: string
+          enum: [pickup, delivery]
+        estimatedArrival:
+          type: string
+          format: date-time
+        actualArrival:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [pending, completed, failed, skipped]
+        notes:
+          type: string
+
+    CreateDeliveryRouteRequest:
+      type: object
+      required: [date, driverId, shipmentIds]
+      properties:
+        date:
+          type: string
+          format: date
+        driverId:
+          type: integer
+        vehicleId:
+          type: integer
+        shipmentIds:
+          type: array
+          items:
+            type: integer
+        notes:
+          type: string
+
+    UpdateDeliveryRouteRequest:
+      type: object
+      properties:
+        driverId:
+          type: integer
+        vehicleId:
+          type: integer
+        status:
+          type: string
+          enum: [planned, in_progress, completed, cancelled]
+        stops:
+          type: array
+          items:
+            type: object
+            properties:
+              shipmentId:
+                type: integer
+              order:
+                type: integer
+
+    # --- External Delivery Service Integration ---
+    DeliveryProvider:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+          example: "СДЭК"
+        code:
+          type: string
+          example: "cdek"
+        logo:
+          type: string
+        supportedMethods:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeliveryMethod'
+        active:
+          type: boolean
+        rating:
+          type: number
+          format: float
+
+    CreateDeliveryRequest:
+      type: object
+      required:
+        - orderId
+        - providerId
+        - deliveryMethod
+        - pickupAddress
+        - deliveryAddress
+        - receiverInfo
+      properties:
+        orderId:
+          type: integer
+        shipmentId:
+          type: integer
+        providerId:
+          type: integer
+          description: ID провайдера доставки
+        deliveryMethod:
+          $ref: '#/components/schemas/DeliveryMethod'
+        pickupAddress:
+          $ref: '#/components/schemas/CreateAddressRequest'
+        deliveryAddress:
+          $ref: '#/components/schemas/CreateAddressRequest'
+        senderInfo:
+          $ref: '#/components/schemas/ContactInfo'
+        receiverInfo:
+          $ref: '#/components/schemas/ContactInfo'
+        packages:
+          type: array
+          items:
+            $ref: '#/components/schemas/CreatePackageRequest'
+        declaredValue:
+          type: number
+          description: Объявленная ценность груза
+        cashOnDelivery:
+          type: number
+          description: Сумма наложенного платежа (если есть)
+        insuranceRequired:
+          type: boolean
+        scheduledPickupDate:
+          type: string
+          format: date-time
+        notes:
+          type: string
+          description: Комментарий для курьера
+
+    DeliveryResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Внутренний ID
+        externalId:
+          type: string
+          description: ID во внешней системе доставки
+        trackingNumber:
+          type: string
+          description: Трекинг-номер
+        trackingUrl:
+          type: string
+          description: URL для отслеживания на сайте провайдера
+        status:
+          $ref: '#/components/schemas/ShipmentStatus'
+        providerName:
+          type: string
+        estimatedDeliveryDate:
+          type: string
+          format: date
+        cost:
+          type: number
+        createdAt:
+          type: string
+          format: date-time
+
+    DeliveryTrackingResponse:
+      type: object
+      properties:
+        deliveryId:
+          type: string
+        trackingNumber:
+          type: string
+        status:
+          $ref: '#/components/schemas/ShipmentStatus'
+        statusDescription:
+          type: string
+        currentLocation:
+          type: string
+        estimatedDeliveryDate:
+          type: string
+          format: date
+        lastUpdated:
+          type: string
+          format: date-time
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/TrackingEvent'
+
+    DeliveryWebhookPayload:
+      type: object
+      properties:
+        providerId:
+          type: string
+          description: Идентификатор провайдера
+        event:
+          type: string
+          enum:
+            - status_changed
+            - delivered
+            - failed
+            - returned
+        deliveryId:
+          type: string
+        trackingNumber:
+          type: string
+        status:
+          type: string
+        statusDescription:
+          type: string
+        location:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        signature:
+          type: string
+          description: Подпись для верификации
+
+    GetDeliveryRatesRequest:
+      type: object
+      required:
+        - pickupAddress
+        - deliveryAddress
+      properties:
+        pickupAddress:
+          $ref: '#/components/schemas/CreateAddressRequest'
+        deliveryAddress:
+          $ref: '#/components/schemas/CreateAddressRequest'
+        packages:
+          type: array
+          items:
+            $ref: '#/components/schemas/CreatePackageRequest'
+        totalWeight:
+          type: number
+        declaredValue:
+          type: number
+        preferredDeliveryDate:
+          type: string
+          format: date
+
+    DeliveryRate:
+      type: object
+      properties:
+        providerId:
+          type: integer
+        providerName:
+          type: string
+        providerLogo:
+          type: string
+        deliveryMethod:
+          $ref: '#/components/schemas/DeliveryMethod'
+        methodName:
+          type: string
+        cost:
+          type: number
+        currency:
+          type: string
+        estimatedDays:
+          type: object
+          properties:
+            min:
+              type: integer
+            max:
+              type: integer
+        estimatedDeliveryDate:
+          type: object
+          properties:
+            from:
+              type: string
+              format: date
+            to:
+              type: string
+              format: date
+        available:
+          type: boolean
+        unavailableReason:
+          type: string
+

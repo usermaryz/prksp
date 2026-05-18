@@ -1,25 +1,257 @@
-# Сервисы: API (FastAPI) и статический фронт за nginx.
+# WMS — микросервисы (Database per Service) + API Gateway + фронт
 services:
-  api:
-    build: ./backend_fastapi
+  auth-db:
+    image: postgres:15-alpine
+    container_name: prksp-auth-db
+    environment:
+      POSTGRES_USER: auth_user
+      POSTGRES_PASSWORD: auth_password
+      POSTGRES_DB: auth_db
+    volumes:
+      - auth_db_data:/var/lib/postgresql/data
+      - ./microservices/auth-service/database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U auth_user -d auth_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - prksp-network
+
+  product-db:
+    image: postgres:15-alpine
+    container_name: prksp-product-db
+    environment:
+      POSTGRES_USER: product_user
+      POSTGRES_PASSWORD: product_password
+      POSTGRES_DB: product_db
+    volumes:
+      - product_db_data:/var/lib/postgresql/data
+      - ./microservices/product-service/database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U product_user -d product_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - prksp-network
+
+  order-db:
+    image: postgres:15-alpine
+    container_name: prksp-order-db
+    environment:
+      POSTGRES_USER: order_user
+      POSTGRES_PASSWORD: order_password
+      POSTGRES_DB: order_db
+    volumes:
+      - order_db_data:/var/lib/postgresql/data
+      - ./microservices/order-service/database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U order_user -d order_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - prksp-network
+
+  inventory-db:
+    image: postgres:15-alpine
+    container_name: prksp-inventory-db
+    environment:
+      POSTGRES_USER: inventory_user
+      POSTGRES_PASSWORD: inventory_password
+      POSTGRES_DB: inventory_db
+    volumes:
+      - inventory_db_data:/var/lib/postgresql/data
+      - ./microservices/inventory-service/database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U inventory_user -d inventory_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - prksp-network
+
+  picking-db:
+    image: postgres:15-alpine
+    container_name: prksp-picking-db
+    environment:
+      POSTGRES_USER: picking_user
+      POSTGRES_PASSWORD: picking_password
+      POSTGRES_DB: picking_db
+    volumes:
+      - picking_db_data:/var/lib/postgresql/data
+      - ./microservices/picking-service/database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U picking_user -d picking_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - prksp-network
+
+  logistics-db:
+    image: postgres:15-alpine
+    container_name: prksp-logistics-db
+    environment:
+      POSTGRES_USER: logistics_user
+      POSTGRES_PASSWORD: logistics_password
+      POSTGRES_DB: logistics_db
+    volumes:
+      - logistics_db_data:/var/lib/postgresql/data
+      - ./microservices/logistics-service/database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U logistics_user -d logistics_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - prksp-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: prksp-redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - prksp-network
+
+  auth-service:
+    build: ./microservices/auth-service
+    container_name: prksp-auth-service
+    environment:
+      DATABASE_URL: postgresql+asyncpg://auth_user:auth_password@auth-db:5432/auth_db
+      SECRET_KEY: ${SECRET_KEY:-prksp-auth-secret-key-min-32-chars}
+      SERVICE_PORT: "8001"
+    depends_on:
+      auth-db:
+        condition: service_healthy
+    networks:
+      - prksp-network
+    restart: unless-stopped
+
+  product-service:
+    build: ./microservices/product-service
+    container_name: prksp-product-service
+    environment:
+      DATABASE_URL: postgresql+asyncpg://product_user:product_password@product-db:5432/product_db
+      SERVICE_PORT: "8002"
+    depends_on:
+      product-db:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+    networks:
+      - prksp-network
+    restart: unless-stopped
+
+  order-service:
+    build: ./microservices/order-service
+    container_name: prksp-order-service
+    environment:
+      DATABASE_URL: postgresql+asyncpg://order_user:order_password@order-db:5432/order_db
+      SERVICE_PORT: "8003"
+      PICKING_SERVICE_URL: http://picking-service:8005
+    depends_on:
+      order-db:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+    networks:
+      - prksp-network
+    restart: unless-stopped
+
+  inventory-service:
+    build: ./microservices/inventory-service
+    container_name: prksp-inventory-service
+    environment:
+      DATABASE_URL: postgresql+asyncpg://inventory_user:inventory_password@inventory-db:5432/inventory_db
+      SERVICE_PORT: "8004"
+    depends_on:
+      inventory-db:
+        condition: service_healthy
+    networks:
+      - prksp-network
+    restart: unless-stopped
+
+  picking-service:
+    build: ./microservices/picking-service
+    container_name: prksp-picking-service
+    environment:
+      DATABASE_URL: postgresql+asyncpg://picking_user:picking_password@picking-db:5432/picking_db
+      SERVICE_PORT: "8005"
+      ORDER_SERVICE_URL: http://order-service:8003
+    depends_on:
+      picking-db:
+        condition: service_healthy
+      order-service:
+        condition: service_started
+    networks:
+      - prksp-network
+    restart: unless-stopped
+
+  logistics-service:
+    build: ./microservices/logistics-service
+    container_name: prksp-logistics-service
+    environment:
+      DATABASE_URL: postgresql+asyncpg://logistics_user:logistics_password@logistics-db:5432/logistics_db
+      SERVICE_PORT: "8006"
+    depends_on:
+      logistics-db:
+        condition: service_healthy
+    networks:
+      - prksp-network
+    restart: unless-stopped
+
+  api-gateway:
+    build: ./microservices/api-gateway
+    container_name: prksp-api-gateway
     ports:
       - "8000:8000"
     environment:
-      SECRET_KEY: ${SECRET_KEY:-demo-not-for-prod}
-      DB_URL: sqlite:///data/prksp.db
-    volumes:
-      - prksp-db:/app/data
+      AUTH_SERVICE_URL: http://auth-service:8001
+      PRODUCT_SERVICE_URL: http://product-service:8002
+      ORDER_SERVICE_URL: http://order-service:8003
+      INVENTORY_SERVICE_URL: http://inventory-service:8004
+      PICKING_SERVICE_URL: http://picking-service:8005
+      LOGISTICS_SERVICE_URL: http://logistics-service:8006
+      SERVICE_PORT: "8000"
+    depends_on:
+      - auth-service
+      - product-service
+      - order-service
+      - inventory-service
+      - picking-service
+      - logistics-service
+    networks:
+      - prksp-network
+    restart: unless-stopped
 
   web:
     build:
       context: ./wms_site
       dockerfile: Dockerfile
       args:
-        REACT_APP_API_URL: ${REACT_APP_API_URL:-http://localhost:8000/api}
+        REACT_APP_API_URL: /api
     ports:
       - "8080:80"
     depends_on:
-      - api
+      - api-gateway
+    networks:
+      - prksp-network
+    restart: unless-stopped
+
+networks:
+  prksp-network:
+    driver: bridge
 
 volumes:
-  prksp-db:
+  auth_db_data:
+  product_db_data:
+  order_db_data:
+  inventory_db_data:
+  picking_db_data:
+  logistics_db_data:
