@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import os
 from contextlib import asynccontextmanager
-from datetime import datetime
 from typing import Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException
@@ -27,12 +26,18 @@ from sqlalchemy.orm import Session, sessionmaker
 from .application.bus import CommandBus, QueryBus
 from .application.commands import (
     DeactivateUserCommand,
+    IssueRefreshTokenCommand,
+    RefreshSessionCommand,
     RegisterUserCommand,
+    RevokeRefreshTokenCommand,
     UpdateLastLoginCommand,
 )
 from .application.handlers.command_handlers import (
     handle_deactivate_user,
+    handle_issue_refresh_token,
+    handle_refresh_session,
     handle_register_user,
+    handle_revoke_refresh_token,
     handle_update_last_login,
 )
 from .application.handlers.query_handlers import (
@@ -45,14 +50,12 @@ from .application.queries import (
     GetUserByUsernameQuery,
     GetUserQuery,
 )
-from .application.services import UserApplicationService
-from .infrastructure.jwt_utils import (
-    create_access_token,
-    create_refresh_token_record,
-    decode_token,
-)
+from .application.services import TokenApplicationService, UserApplicationService
+from .infrastructure.jwt_utils import decode_token
 from .infrastructure.persistence import Base, SQLAlchemyUserRepository
-from .infrastructure.persistence.models import RefreshTokenModel
+from .infrastructure.persistence.sqlalchemy_refresh_token_repository import (
+    SQLAlchemyRefreshTokenRepository,
+)
 from .infrastructure.redis_client import get_redis, verify_redis_connection
 from .wms_config import require_env
 
@@ -198,8 +201,21 @@ def get_user_service(db: Session = Depends(get_db)) -> UserApplicationService:
     return UserApplicationService(user_repository=repository)
 
 
+def get_token_service(db: Session = Depends(get_db)) -> TokenApplicationService:
+    user_service = UserApplicationService(SQLAlchemyUserRepository(db))
+    return TokenApplicationService(
+        token_repository=SQLAlchemyRefreshTokenRepository(db),
+        user_service=user_service,
+        secret_key=SECRET_KEY,
+        algorithm=ALGORITHM,
+        access_expire_minutes=ACCESS_TOKEN_EXPIRE_MINUTES,
+        refresh_expire_days=REFRESH_TOKEN_EXPIRE_DAYS,
+    )
+
+
 def get_command_bus(
     service: UserApplicationService = Depends(get_user_service),
+    token_service: TokenApplicationService = Depends(get_token_service),
 ) -> CommandBus:
     bus = CommandBus()
     bus.register(
@@ -213,6 +229,18 @@ def get_command_bus(
     bus.register(
         UpdateLastLoginCommand,
         lambda cmd: handle_update_last_login(cmd, service),
+    )
+    bus.register(
+        IssueRefreshTokenCommand,
+        lambda cmd: handle_issue_refresh_token(cmd, token_service),
+    )
+    bus.register(
+        RefreshSessionCommand,
+        lambda cmd: handle_refresh_session(cmd, token_service),
+    )
+    bus.register(
+        RevokeRefreshTokenCommand,
+        lambda cmd: handle_revoke_refresh_token(cmd, token_service),
     )
 
     return bus
@@ -251,7 +279,17 @@ def init_database():
         return
     db = SessionLocal()
     try:
-        service = UserApplicationService(SQLAlchemyUserRepository(db))
+        user_service = UserApplicationService(SQLAlchemyUserRepository(db))
+        query_bus = QueryBus()
+        query_bus.register(
+            GetUserByUsernameQuery,
+            lambda q: handle_get_user_by_username(q, user_service),
+        )
+        command_bus = CommandBus()
+        command_bus.register(
+            RegisterUserCommand,
+            lambda cmd: handle_register_user(cmd, user_service),
+        )
         demo_users = [
             ("admin", "admin@wms.local", "admin", "Администратор", "admin"),
             ("manager", "manager@wms.local", "manager", "Менеджер", "manager"),
@@ -259,14 +297,17 @@ def init_database():
             ("driver", "driver@wms.local", "driver", "Водитель", "driver"),
         ]
         for username, email, password, full_name, role in demo_users:
-            if not service.get_user_by_username(username):
-                service.register(
-                    username=username,
-                    email=email,
-                    password_hash=hash_password(password),
-                    full_name=full_name,
-                    role=role,
+            if not query_bus.ask(GetUserByUsernameQuery(username=username)):
+                command_bus.dispatch(
+                    RegisterUserCommand(
+                        username=username,
+                        email=email,
+                        password_hash=hash_password(password),
+                        full_name=full_name,
+                        role=role,
+                    )
                 )
+        db.commit()
         print(
             f"[{SERVICE_NAME}] Demo users seeded "
             "(set ENABLE_DEMO_SEED=false to disable)"
@@ -313,6 +354,7 @@ def login(
     db: Session = Depends(get_db),
     query_bus: QueryBus = Depends(get_query_bus),
     command_bus: CommandBus = Depends(get_command_bus),
+    token_service: TokenApplicationService = Depends(get_token_service),
 ):
     user = query_bus.ask(GetUserByUsernameQuery(username=form_data.username))
     if not user:
@@ -329,11 +371,9 @@ def login(
     command_bus.dispatch(UpdateLastLoginCommand(user_id=user.id))
     user = query_bus.ask(GetUserQuery(user_id=user.id))
 
-    access_token = create_access_token(
-        user, SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES,
-    )
-    refresh_token = create_refresh_token_record(
-        db, user, SECRET_KEY, ALGORITHM, REFRESH_TOKEN_EXPIRE_DAYS,
+    access_token = token_service.create_access_token(user)
+    refresh_token = command_bus.dispatch(
+        IssueRefreshTokenCommand(user_id=user.id)
     )
     db.commit()
 
@@ -346,7 +386,11 @@ def login(
 
 
 @app.post("/auth/refresh", response_model=LoginResponse)
-def refresh_tokens(body: RefreshRequest, db: Session = Depends(get_db)):
+def refresh_tokens(
+    body: RefreshRequest,
+    db: Session = Depends(get_db),
+    command_bus: CommandBus = Depends(get_command_bus),
+):
     payload = decode_token(body.refresh_token, SECRET_KEY, ALGORITHM)
     if not payload or payload.get("type") != "refresh":
         raise HTTPException(status_code=401, detail="Неверный refresh-токен")
@@ -355,61 +399,36 @@ def refresh_tokens(body: RefreshRequest, db: Session = Depends(get_db)):
     if not jti:
         raise HTTPException(status_code=401, detail="Неверный refresh-токен")
 
-    r = get_redis()
-    if r.exists(f"revoked:{jti}"):
+    try:
+        user, access_token, refresh_token = command_bus.dispatch(
+            RefreshSessionCommand(jti=jti)
+        )
+    except ValueError:
         raise HTTPException(
             status_code=401, detail="Refresh-токен отозван или просрочен",
         )
-
-    row = (
-        db.query(RefreshTokenModel)
-        .filter(RefreshTokenModel.token == jti)
-        .first()
-    )
-    if not row or row.revoked_at is not None or row.expires_at < datetime.utcnow():
-        raise HTTPException(
-            status_code=401, detail="Refresh-токен отозван или просрочен",
-        )
-
-    service = UserApplicationService(SQLAlchemyUserRepository(db))
-    user = service.get_user(row.user_id)
-    if not user or not user.is_active:
-        raise HTTPException(status_code=401, detail="Пользователь не найден")
-
-    row.revoked_at = datetime.utcnow()
-    r.setex(f"revoked:{jti}", REFRESH_TOKEN_EXPIRE_DAYS * 86400, "1")
-
-    access_token = create_access_token(
-        user, SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES,
-    )
-    new_refresh = create_refresh_token_record(
-        db, user, SECRET_KEY, ALGORITHM, REFRESH_TOKEN_EXPIRE_DAYS,
-    )
     db.commit()
 
     return LoginResponse(
         user=_user_response(user),
         access_token=access_token,
-        refresh_token=new_refresh,
+        refresh_token=refresh_token,
         expires_in=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
     )
 
 
 @app.post("/auth/logout")
-def logout(body: LogoutRequest, db: Session = Depends(get_db)):
+def logout(
+    body: LogoutRequest,
+    db: Session = Depends(get_db),
+    command_bus: CommandBus = Depends(get_command_bus),
+):
     payload = decode_token(body.refresh_token, SECRET_KEY, ALGORITHM)
     if payload and payload.get("type") == "refresh":
         jti = payload.get("jti")
         if jti:
-            row = (
-                db.query(RefreshTokenModel)
-                .filter(RefreshTokenModel.token == jti)
-                .first()
-            )
-            if row and row.revoked_at is None:
-                row.revoked_at = datetime.utcnow()
-                db.commit()
-            get_redis().setex(f"revoked:{jti}", REFRESH_TOKEN_EXPIRE_DAYS * 86400, "1")
+            command_bus.dispatch(RevokeRefreshTokenCommand(jti=jti))
+            db.commit()
 
     return {"status": "ok"}
 

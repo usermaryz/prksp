@@ -47,6 +47,21 @@ else
   echo "Redis: OK ($REDIS_URL)"
 fi
 
+stop_port() {
+  local port=$1
+  local pids
+  pids=$(lsof -ti ":$port" 2>/dev/null || true)
+  if [[ -n "$pids" ]]; then
+    echo "Освобождаю порт ${port} (pid: ${pids//$'\n'/ })..."
+    kill -9 $pids 2>/dev/null || true
+  fi
+}
+
+for port in 8000 8001 8002 8003 8004 8005 8006; do
+  stop_port "$port"
+done
+sleep 0.5
+
 cleanup() {
   echo ""
   echo "Останавливаю процессы..."

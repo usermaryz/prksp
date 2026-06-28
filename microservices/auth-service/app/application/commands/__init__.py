@@ -24,4 +24,26 @@ class UpdateLastLoginCommand:
     user_id: int
 
 
-__all__ = ["RegisterUserCommand", "DeactivateUserCommand", "UpdateLastLoginCommand"]
+@dataclass(frozen=True)
+class IssueRefreshTokenCommand:
+    user_id: int
+
+
+@dataclass(frozen=True)
+class RefreshSessionCommand:
+    jti: str
+
+
+@dataclass(frozen=True)
+class RevokeRefreshTokenCommand:
+    jti: str
+
+
+__all__ = [
+    "RegisterUserCommand",
+    "DeactivateUserCommand",
+    "UpdateLastLoginCommand",
+    "IssueRefreshTokenCommand",
+    "RefreshSessionCommand",
+    "RevokeRefreshTokenCommand",
+]

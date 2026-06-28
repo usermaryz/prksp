@@ -67,8 +67,7 @@ class SQLAlchemyProductRepository(ProductRepository):
                 self._apply_to_model(product, model)
             self._db.commit()
             self._db.refresh(model)
-            if r is not None:
-                r.delete(f"product:{product.id}")
+            r.delete(f"product:{product.id}")
 
         return self._to_entity(model)
 
@@ -77,9 +76,7 @@ class SQLAlchemyProductRepository(ProductRepository):
         if model is not None:
             self._db.delete(model)
             self._db.commit()
-        r = get_redis()
-        if r is not None:
-            r.delete(f"product:{product_id}")
+        get_redis().delete(f"product:{product_id}")
 
     def count(
         self,

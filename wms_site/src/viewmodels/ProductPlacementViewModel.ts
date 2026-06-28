@@ -61,7 +61,7 @@ export class ProductPlacementViewModel {
       runInAction(() => {
         this.products = products;
         this.zones = apiZones.map(z => ({
-          id: String(z.id),
+          id: z.code,
           name: z.name,
           capacity: z.capacity ? Math.round((z.currentLoad / z.capacity) * 100) : 50,
         }));
@@ -121,9 +121,7 @@ export class ProductPlacementViewModel {
 
   get filteredAisles() {
     if (!this.selectedZone) return [];
-    const zone = this.zones.find(z => z.id === this.selectedZone);
-    const code = zone?.name.match(/Зона\s+(\w)/)?.[1] || this.selectedZone.charAt(0);
-    return this.aisles.filter(a => a.zoneId === code || a.zoneId === this.selectedZone);
+    return this.aisles.filter(a => a.zoneId === this.selectedZone);
   }
 
   get filteredShelves() {

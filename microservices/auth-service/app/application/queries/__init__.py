@@ -23,9 +23,15 @@ class ValidateTokenQuery:
     token: str
 
 
+@dataclass(frozen=True)
+class GetRefreshTokenQuery:
+    jti: str
+
+
 __all__ = [
     "GetUserQuery",
     "GetUserByUsernameQuery",
     "GetUserByEmailQuery",
     "ValidateTokenQuery",
+    "GetRefreshTokenQuery",
 ]

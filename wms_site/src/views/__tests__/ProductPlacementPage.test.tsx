@@ -35,13 +35,16 @@ describe('ProductPlacementPage', () => {
             search: '',
             setSearch: jest.fn(),
             filteredPlacements: mockPlacements || [],
+            loading: false,
+            error: null,
             showModal: false,
             openModal: jest.fn(),
             closeModal: jest.fn(),
             setBarcodeInput: jest.fn(),
             scanProduct: jest.fn(),
             confirmPlacement: jest.fn(),
-            acceptPlacement: jest.fn()
+            acceptPlacement: jest.fn(),
+            loadFromApi: jest.fn().mockResolvedValue(undefined),
         }));
     });
 

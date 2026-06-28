@@ -261,9 +261,10 @@ def init_database():
 
     db = SessionLocal()
     try:
-        from .infrastructure.persistence.models import PickingTaskModel
+        from .infrastructure.persistence.sqlalchemy_task_repository import SQLAlchemyTaskRepository
 
-        if db.query(PickingTaskModel).count() == 0:
+        task_repo = SQLAlchemyTaskRepository(db)
+        if len(task_repo.find_all()) == 0:
             print(f"[{SERVICE_NAME}] Initializing database...")
             orders = _fetch_orders_for_seed()
             status_map = {

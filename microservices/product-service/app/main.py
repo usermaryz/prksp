@@ -45,6 +45,8 @@ from .application.handlers.query_handlers import (
 )
 from .application.services import ProductApplicationService
 from .application.services.catalog_query_service import CatalogQueryService
+from .domain.entities.product import Product
+from .domain.value_objects.product_status import ProductStatus
 from .infrastructure.persistence import Base, SQLAlchemyProductRepository, CategoryModel, WarehouseZoneModel
 from .infrastructure.redis_client import get_redis, verify_redis_connection
 from .wms_config import require_env
@@ -204,10 +206,10 @@ def init_database():
 
     db = SessionLocal()
     try:
-        from .infrastructure.persistence.models import ProductModel
-        if db.query(ProductModel).count() > 0:
+        repository = SQLAlchemyProductRepository(db)
+        if repository.count() > 0:
             return
-        print(f"[{SERVICE_NAME}] Initializing database...")
+        print(f"[{SERVICE_NAME}] Initializing database via domain repository...")
 
         categories = [
             CategoryModel(name="Электроника"),
@@ -215,22 +217,39 @@ def init_database():
             CategoryModel(name="Компьютеры"),
         ]
         db.add_all(categories)
+        db.flush()
 
-        products = [
-            ProductModel(sku="PRD-001", barcode="4000000000001", name="iPhone 15 Pro", price=99990, stock=45, location="A-01-03", category_id=1, description="brand:Apple|country:США|category:Electronics|weight:221g|dimensions:15x7cm"),
-            ProductModel(sku="PRD-002", barcode="4000000000002", name="Samsung Galaxy S24", price=84990, stock=32, location="A-01-04", category_id=1, description="brand:Samsung|country:Южная Корея|category:Electronics|weight:168g|dimensions:15x7cm"),
-            ProductModel(sku="PRD-003", barcode="4000000000003", name="Sony WH-1000XM5", price=34990, stock=18, location="A-02-01", category_id=2, description="brand:Sony|country:Япония|category:Electronics|weight:250g|dimensions:20x18cm"),
-            ProductModel(sku="PRD-004", barcode="4000000000004", name="MacBook Pro 14", price=199990, stock=12, location="A-03-01", category_id=3, description="brand:Apple|country:США|category:Computer Accessories|weight:1.6kg|dimensions:31x22cm"),
-            ProductModel(sku="PRD-005", barcode="4000000000005", name="iPad Air", price=64990, stock=28, location="A-01-05", category_id=1, description="brand:Apple|country:Китай|category:Electronics|weight:461g|dimensions:25x17cm"),
-            ProductModel(sku="PRD-006", barcode="4000000000006", name="AirPods Pro 2", price=24990, stock=56, location="A-02-02", category_id=2, description="brand:Apple|country:Вьетнам|category:Electronics|weight:50g|dimensions:5x5cm"),
-            ProductModel(sku="PRD-007", barcode="4000000000007", name="Logitech MX Keys", price=8990, stock=8, location="B-01-01", category_id=3, description="brand:Logitech|country:Швейцария|category:Computer Accessories|weight:810g|dimensions:43x13cm"),
-            ProductModel(sku="PRD-008", barcode="4000000000008", name="JBL Flip 6", price=12990, stock=24, location="B-01-02", category_id=2, description="brand:JBL|country:Китай|category:Electronics|weight:550g|dimensions:18x7cm"),
-            ProductModel(sku="PRD-009", barcode="PRD12345", name="Беспроводные наушники", price=4990, stock=15, location="A-02-03", category_id=2, description="brand:Sony|country:Китай|category:Electronics|weight:250g|dimensions:10x5cm"),
-            ProductModel(sku="PRD-010", barcode="PRD23456", name="Белковый порошок", price=3990, stock=40, location="C-01-01", category_id=1, description="brand:Optimum Nutrition|country:США|category:Health & Fitness|weight:2kg|dimensions:20x15cm"),
-            ProductModel(sku="PRD-011", barcode="PRD34567", name="Механическая клавиатура", price=7990, stock=6, location="B-02-01", category_id=3, description="brand:Logitech|country:Тайвань|category:Computer Accessories|weight:1.2kg|dimensions:45x15cm"),
-            ProductModel(sku="PRD-012", barcode="PRD45678", name="Кофеварка", price=15990, stock=3, location="C-02-01", category_id=1, description="brand:DeLonghi|country:Италия|category:Kitchen Appliances|weight:4kg|dimensions:30x25cm"),
+        seed_products = [
+            ("PRD-001", "4000000000001", "iPhone 15 Pro", 99990, 45, "A-01-03", 1, "brand:Apple|country:США|category:Electronics|weight:221g|dimensions:15x7cm"),
+            ("PRD-002", "4000000000002", "Samsung Galaxy S24", 84990, 32, "A-01-04", 1, "brand:Samsung|country:Южная Корея|category:Electronics|weight:168g|dimensions:15x7cm"),
+            ("PRD-003", "4000000000003", "Sony WH-1000XM5", 34990, 18, "A-02-01", 2, "brand:Sony|country:Япония|category:Electronics|weight:250g|dimensions:20x18cm"),
+            ("PRD-004", "4000000000004", "MacBook Pro 14", 199990, 12, "A-03-01", 3, "brand:Apple|country:США|category:Computer Accessories|weight:1.6kg|dimensions:31x22cm"),
+            ("PRD-005", "4000000000005", "iPad Air", 64990, 28, "A-01-05", 1, "brand:Apple|country:Китай|category:Electronics|weight:461g|dimensions:25x17cm"),
+            ("PRD-006", "4000000000006", "AirPods Pro 2", 24990, 56, "A-02-02", 2, "brand:Apple|country:Вьетнам|category:Electronics|weight:50g|dimensions:5x5cm"),
+            ("PRD-007", "4000000000007", "Logitech MX Keys", 8990, 8, "B-01-01", 3, "brand:Logitech|country:Швейцария|category:Computer Accessories|weight:810g|dimensions:43x13cm"),
+            ("PRD-008", "4000000000008", "JBL Flip 6", 12990, 24, "B-01-02", 2, "brand:JBL|country:Китай|category:Electronics|weight:550g|dimensions:18x7cm"),
+            ("PRD-009", "PRD12345", "Беспроводные наушники", 4990, 15, "A-02-03", 2, "brand:Sony|country:Китай|category:Electronics|weight:250g|dimensions:10x5cm"),
+            ("PRD-010", "PRD23456", "Белковый порошок", 3990, 40, "C-01-01", 1, "brand:Optimum Nutrition|country:США|category:Health & Fitness|weight:2kg|dimensions:20x15cm"),
+            ("PRD-011", "PRD34567", "Механическая клавиатура", 7990, 6, "B-02-01", 3, "brand:Logitech|country:Тайвань|category:Computer Accessories|weight:1.2kg|dimensions:45x15cm"),
+            ("PRD-012", "PRD45678", "Кофеварка", 15990, 3, "C-02-01", 1, "brand:DeLonghi|country:Италия|category:Kitchen Appliances|weight:4kg|dimensions:30x25cm"),
         ]
-        db.add_all(products)
+        for sku, barcode, name, price, stock, location, category_id, description in seed_products:
+            product = Product(
+                id=None,
+                sku=sku,
+                barcode=barcode,
+                name=name,
+                description=description,
+                price=Decimal(str(price)),
+                category_id=category_id,
+                status=ProductStatus.active,
+                stock=stock,
+                reserved=0,
+                location=location,
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
+            )
+            repository.save(product)
 
         zones = [
             WarehouseZoneModel(code="A", name="Электроника", capacity=1000, used=750),

@@ -61,6 +61,11 @@ cd wms_site && npm install && npm start
 
 Открыть http://localhost:3000 — webpack проксирует `/api` на gateway (:8000).
 
+**Если что-то не работает:**
+- `Redis недоступен` — `brew services start redis`
+- Пустой склад / 401 — перелогиньтесь (`admin` / `admin`)
+- Сброс локальных SQLite-БД: `cd microservices && ./reset_demo_dbs.sh && ./start_all.sh`
+
 ## Локальная разработка (фронт + Docker gateway)
 
 1. Поднять бэкенд в Docker:

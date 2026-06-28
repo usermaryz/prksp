@@ -214,7 +214,11 @@ def init_database():
 
     db = SessionLocal()
     try:
-        if db.query(CarrierModel).count() == 0:
+        from .infrastructure.persistence.sqlalchemy_carrier_repository import (
+            SQLAlchemyCarrierRepository,
+        )
+
+        if len(SQLAlchemyCarrierRepository(db).find_all_active()) == 0:
             print(f"[{SERVICE_NAME}] Initializing database...")
 
             carriers = [

@@ -10,6 +10,7 @@ Layers:
 
 from contextlib import asynccontextmanager
 from typing import List, Optional
+import json
 import os
 
 from fastapi import FastAPI, HTTPException, Depends, Header, BackgroundTasks, Query
@@ -37,6 +38,7 @@ from .application.handlers.query_handlers import handle_get_order, handle_list_o
 from .application.services import OrderApplicationService
 from .application.services.order_application_service import CreateOrderDTO, AddItemDTO
 from .infrastructure.persistence import Base, SQLAlchemyOrderRepository
+from .infrastructure.redis_client import get_redis, verify_redis_connection
 from .wms_config import require_env
 
 
@@ -135,6 +137,14 @@ def verify_internal_key(x_internal_key: str = Header(None)):
     return True
 
 
+def _invalidate_order_cache(order_id: int | None = None) -> None:
+    r = get_redis()
+    if order_id is not None:
+        r.delete(f"order:{order_id}")
+    for key in r.scan_iter("orders:list:*"):
+        r.delete(key)
+
+
 # =============================================================================
 # INIT / SEED
 # =============================================================================
@@ -204,7 +214,8 @@ def init_database():
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_database()
-    print(f"[{SERVICE_NAME}] Starting on port {SERVICE_PORT} (CQRS + DDD)...")
+    verify_redis_connection()
+    print(f"[{SERVICE_NAME}] Starting on port {SERVICE_PORT} (CQRS + DDD + Redis)...")
     yield
     print(f"[{SERVICE_NAME}] Shutting down...")
 
@@ -248,7 +259,12 @@ app.add_middleware(
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": SERVICE_NAME, "port": SERVICE_PORT, "architecture": "DDD+CQRS"}
+    return {
+        "status": "ok",
+        "service": SERVICE_NAME,
+        "port": SERVICE_PORT,
+        "architecture": "DDD+CQRS+Redis",
+    }
 
 
 @app.get("/orders")
@@ -258,15 +274,30 @@ def get_orders(
     status: Optional[str] = None,
     query_bus: QueryBus = Depends(get_query_bus),
 ):
-    return query_bus.ask(ListOrdersQuery(status=status, page=page, limit=limit))
+    cache_key = f"orders:list:{status or 'all'}:{page}:{limit}"
+    r = get_redis()
+    cached = r.get(cache_key)
+    if cached is not None:
+        return json.loads(cached)
+
+    result = query_bus.ask(ListOrdersQuery(status=status, page=page, limit=limit))
+    r.setex(cache_key, 30, json.dumps(result, default=str))
+    return result
 
 
 @app.get("/orders/{order_id}")
 def get_order(order_id: int, query_bus: QueryBus = Depends(get_query_bus)):
+    cache_key = f"order:{order_id}"
+    r = get_redis()
+    cached = r.get(cache_key)
+    if cached is not None:
+        return json.loads(cached)
+
     result = query_bus.ask(GetOrderQuery(order_id=order_id))
     if not result:
         raise HTTPException(status_code=404, detail="Order not found")
 
+    r.setex(cache_key, 30, json.dumps(result, default=str))
     return result
 
 
@@ -299,6 +330,8 @@ async def create_order(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
+    _invalidate_order_cache()
+
     background_tasks.add_task(
         notify_picking_service, order.id, order.order_number, order.priority
     )
@@ -314,11 +347,14 @@ def update_order_status(
     command_bus: CommandBus = Depends(get_command_bus),
 ):
     try:
-        return command_bus.dispatch(
+        result = command_bus.dispatch(
             ChangeStatusCommand(order_id=order_id, new_status=request.status, reason=request.reason)
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+    _invalidate_order_cache(order_id)
+    return result
 
 
 @app.post("/orders/{order_id}/items", status_code=201)
@@ -328,7 +364,7 @@ def add_item_to_order(
     command_bus: CommandBus = Depends(get_command_bus),
 ):
     try:
-        return command_bus.dispatch(
+        result = command_bus.dispatch(
             AddItemCommand(
                 order_id=order_id,
                 product_id=request.product_id,
@@ -341,6 +377,9 @@ def add_item_to_order(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
+    _invalidate_order_cache(order_id)
+    return result
+
 
 @app.post("/orders/{order_id}/cancel")
 def cancel_order(
@@ -349,9 +388,12 @@ def cancel_order(
     command_bus: CommandBus = Depends(get_command_bus),
 ):
     try:
-        return command_bus.dispatch(CancelOrderCommand(order_id=order_id, reason=reason))
+        result = command_bus.dispatch(CancelOrderCommand(order_id=order_id, reason=reason))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+    _invalidate_order_cache(order_id)
+    return result
 
 
 @app.post("/orders/{order_id}/confirm")
@@ -360,9 +402,12 @@ def confirm_order(
     command_bus: CommandBus = Depends(get_command_bus),
 ):
     try:
-        return command_bus.dispatch(ChangeStatusCommand(order_id=order_id, new_status="confirmed"))
+        result = command_bus.dispatch(ChangeStatusCommand(order_id=order_id, new_status="confirmed"))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+    _invalidate_order_cache(order_id)
+    return result
 
 
 @app.delete("/orders/{order_id}/items/{product_id}")
@@ -372,9 +417,12 @@ def remove_item_from_order(
     service: OrderApplicationService = Depends(get_order_service),
 ):
     try:
-        return service.remove_item(order_id, product_id)
+        result = service.remove_item(order_id, product_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+    _invalidate_order_cache(order_id)
+    return result
 
 
 @app.delete("/orders/{order_id}", status_code=204)
@@ -384,6 +432,8 @@ def delete_order(
 ):
     if not service.delete_order(order_id):
         raise HTTPException(status_code=404, detail="Order not found")
+
+    _invalidate_order_cache(order_id)
 
 
 # =============================================================================
@@ -401,6 +451,7 @@ def update_order_status_internal(
         command_bus.dispatch(
             ChangeStatusCommand(order_id=order_id, new_status=request.status, reason=request.reason)
         )
+        _invalidate_order_cache(order_id)
         return {"status": "updated", "order_id": order_id, "new_status": request.status}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

@@ -17,6 +17,7 @@ export interface Product {
 
 export interface PlacementZone {
   id: number;
+  code: string;
   name: string;
   capacity: number;
   currentLoad: number;
@@ -46,6 +47,7 @@ function mapProduct(p: {
 
 function mapZone(z: {
   id: number;
+  code: string;
   name: string;
   capacity: number;
   current_usage?: number;
@@ -59,6 +61,7 @@ function mapZone(z: {
   else if (load >= cap) status = 'full';
   return {
     id: z.id,
+    code: z.code,
     name: z.name,
     capacity: cap,
     currentLoad: load,
