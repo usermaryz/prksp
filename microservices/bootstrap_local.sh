@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Создаёт venv на Python 3.11/3.12 и ставит зависимости всех сервисов (без Docker).
+# Создаёт venv на Python 3.11/3.12, ставит зависимости и генерирует .env.local с секретами.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
@@ -32,5 +32,23 @@ for s in auth-service product-service order-service picking-service logistics-se
   echo "=== pip install $s ==="
   pip install -r "$s/requirements.txt"
 done
+
+ENV_FILE="${ROOT}/.env.local"
+if [[ ! -f "$ENV_FILE" ]]; then
+  cat > "$ENV_FILE" <<EOF
+# Локальные секреты (не коммитить). Сгенерировано bootstrap_local.sh
+SECRET_KEY=$(openssl rand -hex 32)
+INTERNAL_API_KEY=$(openssl rand -hex 32)
+ENABLE_DEMO_SEED=true
+REDIS_URL=redis://localhost:6379/0
+EOF
+  echo ""
+  echo "Создан ${ENV_FILE} с SECRET_KEY, INTERNAL_API_KEY и REDIS_URL."
+else
+  echo ""
+  echo "${ENV_FILE} уже существует — секреты не перезаписаны."
+fi
+
 echo ""
 echo "Готово. Запуск: ./start_all.sh"
+echo "Redis обязателен: brew install redis && brew services start redis"

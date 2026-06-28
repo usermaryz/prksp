@@ -35,14 +35,31 @@ const ProductModal: React.FC<ProductModalProps> = observer(({ vm, onClose, onCon
       }
     >
       <div className="space-y-4">
-        <Input
-          type="text"
-          value={vm.barcodeInput}
-          onChange={vm.setBarcodeInput}
-          placeholder="Введите штрих-код"
-          label="Штрих-код"
-          required
-        />
+        <div className="flex gap-2 items-end">
+          <div className="flex-1">
+            <Input
+              type="text"
+              value={vm.barcodeInput}
+              onChange={vm.setBarcodeInput}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  vm.scanProduct();
+                }
+              }}
+              placeholder="Введите штрих-код"
+              label="Штрих-код"
+              required
+            />
+          </div>
+          <Button type="button" variant="secondary" onClick={() => vm.scanProduct()}>
+            Найти
+          </Button>
+        </div>
+
+        {vm.showError && (
+          <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{vm.errorMessage}</div>
+        )}
 
         {vm.scannedProduct && (
           <div className="bg-gray-50 p-4 rounded-md">

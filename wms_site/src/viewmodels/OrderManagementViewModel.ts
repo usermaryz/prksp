@@ -12,6 +12,18 @@ function parseMeta(description?: string): Record<string, string> {
   return out;
 }
 
+function mapWorkflowStatus(status?: string, description?: string): Product['status'] {
+  const meta = parseMeta(description);
+  const workflow = meta.wms_status;
+  if (workflow === 'processing' || workflow === 'rejected' || workflow === 'completed') {
+    return workflow;
+  }
+  if (status === 'processing' || status === 'rejected' || status === 'completed') {
+    return status;
+  }
+  return 'pending';
+}
+
 function mapApiProduct(p: {
   id: number;
   sku: string;
@@ -20,6 +32,7 @@ function mapApiProduct(p: {
   description?: string;
   location?: string;
   stock?: number;
+  status?: string;
 }): Product {
   const meta = parseMeta(p.description);
   return {
@@ -32,9 +45,19 @@ function mapApiProduct(p: {
     image: '',
     weight: meta.weight || '—',
     dimensions: meta.dimensions || '—',
-    status: 'pending',
+    status: mapWorkflowStatus(p.status, p.description),
     location: p.location,
+    packageType: meta.packageType,
+    containerBarcode: meta.containerBarcode,
   };
+}
+
+function buildDescription(base: string | undefined, updates: Record<string, string>): string {
+  const meta = parseMeta(base);
+  Object.assign(meta, updates);
+  return Object.entries(meta)
+    .map(([key, value]) => `${key}:${value}`)
+    .join('|');
 }
 
 export class OrderManagementViewModel {
@@ -49,7 +72,6 @@ export class OrderManagementViewModel {
 
   constructor() {
     makeAutoObservable(this);
-    void this.loadProducts();
   }
 
   async loadProducts() {
@@ -66,6 +88,7 @@ export class OrderManagementViewModel {
           description: (p as { description?: string }).description,
           location: (p as { location?: string }).location,
           stock: (p as { stock?: number }).stock,
+          status: (p as { status?: string }).status,
         })
       );
     } catch (error) {
@@ -98,24 +121,47 @@ export class OrderManagementViewModel {
     this.showModal = true;
   }
 
-  handleReject(product: Product) {
-    const index = this.products.findIndex(p => p.id === product.id);
-    if (index !== -1) {
-      this.products[index] = { ...product, status: 'rejected' };
+  async handleReject(product: Product) {
+    try {
+      const apiProduct = await productApi.getProduct(product.id);
+      await productApi.updateProduct(product.id, {
+        description: buildDescription(apiProduct.description, { wms_status: 'rejected' }),
+      });
+      const index = this.products.findIndex(p => p.id === product.id);
+      if (index !== -1) {
+        this.products[index] = { ...product, status: 'rejected' };
+      }
+    } catch (error) {
+      this.error = 'Не удалось отклонить товар';
+      console.error('Error rejecting product:', error);
     }
   }
 
-  handleModalSubmit() {
+  async handleModalSubmit() {
     if (!this.selectedProduct) return;
 
-    const index = this.products.findIndex(p => p.id === this.selectedProduct!.id);
-    if (index !== -1) {
-      this.products[index] = {
-        ...this.products[index],
-        status: 'processing',
+    try {
+      const apiProduct = await productApi.getProduct(this.selectedProduct.id);
+      const description = buildDescription(apiProduct.description, {
+        wms_status: 'processing',
         packageType: this.packageType,
         containerBarcode: this.containerBarcode,
-      };
+      });
+      await productApi.updateProduct(this.selectedProduct.id, { description });
+
+      const index = this.products.findIndex(p => p.id === this.selectedProduct!.id);
+      if (index !== -1) {
+        this.products[index] = {
+          ...this.products[index],
+          status: 'processing',
+          packageType: this.packageType,
+          containerBarcode: this.containerBarcode,
+        };
+      }
+    } catch (error) {
+      this.error = 'Не удалось сохранить изменения';
+      console.error('Error submitting product:', error);
+      return;
     }
 
     this.showModal = false;

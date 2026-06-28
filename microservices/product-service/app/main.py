@@ -1,26 +1,53 @@
 """
-Product Service - Микросервис товаров
-=====================================
-База данных: products.db
-Порт: 8002
+Product Service — DDD + CQRS + Redis architecture.
 
-Ответственность:
-- Каталог товаров
-- Управление остатками
-- Резервирование товаров для заказов
+Layers:
+  domain/         — Product (Aggregate Root), Price & ProductStatus (Value Objects), Domain Events
+  application/    — CommandBus / QueryBus, Commands, Queries, Handlers, ProductApplicationService
+  infrastructure/ — SQLAlchemyProductRepository, RedisClient
+  main.py         — FastAPI endpoints (thin adapter)
 """
+
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import Optional, List
 from decimal import Decimal
+from typing import List, Optional
+import json
 import os
-import random
 
-from fastapi import FastAPI, HTTPException, Depends, Header
+from fastapi import FastAPI, HTTPException, Depends, Header, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Numeric, Text, Boolean
-from sqlalchemy.orm import sessionmaker, Session, declarative_base
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, Session
+
+from .application.bus import CommandBus, QueryBus
+from .application.commands import (
+    CreateProductCommand,
+    DeleteProductCommand,
+    ReserveStockCommand,
+    ReleaseStockCommand,
+    UpdateProductCommand,
+)
+from .application.queries import GetProductQuery, ListCategoriesQuery, ListProductsQuery, ListZonesQuery
+from .application.handlers.command_handlers import (
+    handle_create_product,
+    handle_delete_product,
+    handle_reserve_stock,
+    handle_release_stock,
+    handle_update_product,
+)
+from .application.handlers.query_handlers import (
+    handle_get_product,
+    handle_list_products,
+    handle_list_categories,
+    handle_list_zones,
+)
+from .application.services import ProductApplicationService
+from .application.services.catalog_query_service import CatalogQueryService
+from .infrastructure.persistence import Base, SQLAlchemyProductRepository, CategoryModel, WarehouseZoneModel
+from .infrastructure.redis_client import get_redis, verify_redis_connection
+from .wms_config import require_env
 
 
 # =============================================================================
@@ -29,62 +56,34 @@ from sqlalchemy.orm import sessionmaker, Session, declarative_base
 SERVICE_NAME = "product-service"
 SERVICE_PORT = int(os.getenv("SERVICE_PORT", "8002"))
 DATABASE_PATH = os.path.join(os.path.dirname(__file__), "..", "products.db")
-_raw_db = os.getenv("DATABASE_URL", "").strip()
-DATABASE_URL = (
-    _raw_db.replace("postgresql+asyncpg://", "postgresql+psycopg2://", 1)
-    if _raw_db
-    else f"sqlite:///{DATABASE_PATH}"
+
+
+def _sync_db_url(raw: str, fallback: str) -> str:
+    if not raw:
+        return fallback
+    raw = raw.replace("postgresql+asyncpg://", "postgresql+psycopg2://", 1)
+    if raw.startswith("postgres://"):
+        raw = "postgresql+psycopg2://" + raw[len("postgres://"):]
+
+    return raw
+
+
+DATABASE_URL = _sync_db_url(
+    os.getenv("DATABASE_URL", "").strip(),
+    f"sqlite:///{DATABASE_PATH}",
 )
-INTERNAL_API_KEY = "internal-service-key-2024"
+INTERNAL_API_KEY = require_env(
+    "INTERNAL_API_KEY",
+    "Generate with: openssl rand -hex 32",
+)
 
 _connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 engine = create_engine(DATABASE_URL, connect_args=_connect_args)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
 
 
 # =============================================================================
-# MODELS
-# =============================================================================
-class Product(Base):
-    __tablename__ = "products"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    sku = Column(String(50), unique=True, nullable=False, index=True)
-    barcode = Column(String(50), unique=True, nullable=False, index=True)
-    name = Column(String(255), nullable=False)
-    description = Column(Text)
-    price = Column(Numeric(12, 2))
-    category_id = Column(Integer)
-    status = Column(String(20), default="active")
-    stock = Column(Integer, default=0)
-    reserved = Column(Integer, default=0)
-    location = Column(String(20))
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-
-class Category(Base):
-    __tablename__ = "categories"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(100), nullable=False)
-    is_active = Column(Boolean, default=True)
-
-
-class WarehouseZone(Base):
-    __tablename__ = "warehouse_zones"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    code = Column(String(10), unique=True, nullable=False)
-    name = Column(String(100), nullable=False)
-    capacity = Column(Integer, default=1000)
-    used = Column(Integer, default=0)
-    is_active = Column(Boolean, default=True)
-
-
-# =============================================================================
-# SCHEMAS
+# PYDANTIC SCHEMAS
 # =============================================================================
 class ProductCreate(BaseModel):
     sku: str
@@ -92,6 +91,15 @@ class ProductCreate(BaseModel):
     description: Optional[str] = None
     price: Optional[Decimal] = None
     stock: int = 0
+
+
+class ProductUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    price: Optional[Decimal] = None
+    stock: Optional[int] = None
+    location: Optional[str] = None
+    status: Optional[str] = None
 
 
 class ProductResponse(BaseModel):
@@ -104,6 +112,7 @@ class ProductResponse(BaseModel):
     stock: int
     reserved: int
     location: Optional[str]
+    status: Optional[str]
     created_at: datetime
 
     class Config:
@@ -120,7 +129,7 @@ class ReserveRequest(BaseModel):
 
 
 # =============================================================================
-# DEPENDENCIES
+# DEPENDENCY INJECTION
 # =============================================================================
 def get_db():
     db = SessionLocal()
@@ -130,56 +139,109 @@ def get_db():
         db.close()
 
 
+def get_product_service(db: Session = Depends(get_db)) -> ProductApplicationService:
+    repository = SQLAlchemyProductRepository(db)
+
+    return ProductApplicationService(repository=repository)
+
+
+def get_command_bus(service: ProductApplicationService = Depends(get_product_service)) -> CommandBus:
+    bus = CommandBus()
+    bus.register(CreateProductCommand, lambda cmd: handle_create_product(cmd, service))
+    bus.register(DeleteProductCommand, lambda cmd: handle_delete_product(cmd, service))
+    bus.register(ReserveStockCommand, lambda cmd: handle_reserve_stock(cmd, service))
+    bus.register(ReleaseStockCommand, lambda cmd: handle_release_stock(cmd, service))
+    bus.register(UpdateProductCommand, lambda cmd: handle_update_product(cmd, service))
+
+    return bus
+
+
+def get_catalog_service(db: Session = Depends(get_db)) -> CatalogQueryService:
+    return CatalogQueryService(db)
+
+
+def get_query_bus(
+    service: ProductApplicationService = Depends(get_product_service),
+    catalog: CatalogQueryService = Depends(get_catalog_service),
+) -> QueryBus:
+    bus = QueryBus()
+    bus.register(GetProductQuery, lambda q: handle_get_product(q, service))
+    bus.register(ListProductsQuery, lambda q: handle_list_products(q, service))
+    bus.register(ListCategoriesQuery, lambda q: handle_list_categories(q, catalog))
+    bus.register(ListZonesQuery, lambda q: handle_list_zones(q, catalog))
+
+    return bus
+
+
 def verify_internal_key(x_internal_key: str = Header(None)):
     if x_internal_key != INTERNAL_API_KEY:
         raise HTTPException(status_code=403, detail="Invalid internal API key")
+
     return True
 
 
+def _product_to_response(product) -> dict:
+    return ProductResponse(
+        id=product.id,
+        sku=product.sku,
+        barcode=product.barcode,
+        name=product.name,
+        description=product.description,
+        price=product.price,
+        stock=product.stock,
+        reserved=product.reserved,
+        location=product.location,
+        status=product.status.value if product.status else None,
+        created_at=product.created_at,
+    ).model_dump()
+
+
 # =============================================================================
-# INIT
+# INIT / SEED
 # =============================================================================
 def init_database():
     Base.metadata.create_all(bind=engine)
-    
+
     db = SessionLocal()
     try:
-        if db.query(Product).count() == 0:
-            print(f"[{SERVICE_NAME}] Initializing database...")
-            
-            categories = [
-                Category(name="Электроника"),
-                Category(name="Аудио"),
-                Category(name="Компьютеры"),
-            ]
-            db.add_all(categories)
-            
-            products = [
-                Product(sku="PRD-001", barcode="4000000000001", name="iPhone 15 Pro", price=99990, stock=45, location="A-01-03", category_id=1, description="brand:Apple|country:США|category:Electronics|weight:221g|dimensions:15x7cm"),
-                Product(sku="PRD-002", barcode="4000000000002", name="Samsung Galaxy S24", price=84990, stock=32, location="A-01-04", category_id=1, description="brand:Samsung|country:Южная Корея|category:Electronics|weight:168g|dimensions:15x7cm"),
-                Product(sku="PRD-003", barcode="4000000000003", name="Sony WH-1000XM5", price=34990, stock=18, location="A-02-01", category_id=2, description="brand:Sony|country:Япония|category:Electronics|weight:250g|dimensions:20x18cm"),
-                Product(sku="PRD-004", barcode="4000000000004", name="MacBook Pro 14", price=199990, stock=12, location="A-03-01", category_id=3, description="brand:Apple|country:США|category:Computer Accessories|weight:1.6kg|dimensions:31x22cm"),
-                Product(sku="PRD-005", barcode="4000000000005", name="iPad Air", price=64990, stock=28, location="A-01-05", category_id=1, description="brand:Apple|country:Китай|category:Electronics|weight:461g|dimensions:25x17cm"),
-                Product(sku="PRD-006", barcode="4000000000006", name="AirPods Pro 2", price=24990, stock=56, location="A-02-02", category_id=2, description="brand:Apple|country:Вьетнам|category:Electronics|weight:50g|dimensions:5x5cm"),
-                Product(sku="PRD-007", barcode="4000000000007", name="Logitech MX Keys", price=8990, stock=8, location="B-01-01", category_id=3, description="brand:Logitech|country:Швейцария|category:Computer Accessories|weight:810g|dimensions:43x13cm"),
-                Product(sku="PRD-008", barcode="4000000000008", name="JBL Flip 6", price=12990, stock=24, location="B-01-02", category_id=2, description="brand:JBL|country:Китай|category:Electronics|weight:550g|dimensions:18x7cm"),
-                Product(sku="PRD-009", barcode="PRD12345", name="Беспроводные наушники", price=4990, stock=15, location="A-02-03", category_id=2, description="brand:Sony|country:Китай|category:Electronics|weight:250g|dimensions:10x5cm"),
-                Product(sku="PRD-010", barcode="PRD23456", name="Белковый порошок", price=3990, stock=40, location="C-01-01", category_id=1, description="brand:Optimum Nutrition|country:США|category:Health & Fitness|weight:2kg|dimensions:20x15cm"),
-                Product(sku="PRD-011", barcode="PRD34567", name="Механическая клавиатура", price=7990, stock=6, location="B-02-01", category_id=3, description="brand:Logitech|country:Тайвань|category:Computer Accessories|weight:1.2kg|dimensions:45x15cm"),
-                Product(sku="PRD-012", barcode="PRD45678", name="Кофеварка", price=15990, stock=3, location="C-02-01", category_id=1, description="brand:DeLonghi|country:Италия|category:Kitchen Appliances|weight:4kg|dimensions:30x25cm"),
-            ]
-            db.add_all(products)
-            
-            zones = [
-                WarehouseZone(code="A", name="Электроника", capacity=1000, used=750),
-                WarehouseZone(code="B", name="Бытовая техника", capacity=800, used=600),
-                WarehouseZone(code="C", name="Одежда", capacity=1200, used=400),
-                WarehouseZone(code="D", name="Продукты", capacity=500, used=480),
-            ]
-            db.add_all(zones)
-            
-            db.commit()
-            print(f"[{SERVICE_NAME}] Database initialized!")
+        from .infrastructure.persistence.models import ProductModel
+        if db.query(ProductModel).count() > 0:
+            return
+        print(f"[{SERVICE_NAME}] Initializing database...")
+
+        categories = [
+            CategoryModel(name="Электроника"),
+            CategoryModel(name="Аудио"),
+            CategoryModel(name="Компьютеры"),
+        ]
+        db.add_all(categories)
+
+        products = [
+            ProductModel(sku="PRD-001", barcode="4000000000001", name="iPhone 15 Pro", price=99990, stock=45, location="A-01-03", category_id=1, description="brand:Apple|country:США|category:Electronics|weight:221g|dimensions:15x7cm"),
+            ProductModel(sku="PRD-002", barcode="4000000000002", name="Samsung Galaxy S24", price=84990, stock=32, location="A-01-04", category_id=1, description="brand:Samsung|country:Южная Корея|category:Electronics|weight:168g|dimensions:15x7cm"),
+            ProductModel(sku="PRD-003", barcode="4000000000003", name="Sony WH-1000XM5", price=34990, stock=18, location="A-02-01", category_id=2, description="brand:Sony|country:Япония|category:Electronics|weight:250g|dimensions:20x18cm"),
+            ProductModel(sku="PRD-004", barcode="4000000000004", name="MacBook Pro 14", price=199990, stock=12, location="A-03-01", category_id=3, description="brand:Apple|country:США|category:Computer Accessories|weight:1.6kg|dimensions:31x22cm"),
+            ProductModel(sku="PRD-005", barcode="4000000000005", name="iPad Air", price=64990, stock=28, location="A-01-05", category_id=1, description="brand:Apple|country:Китай|category:Electronics|weight:461g|dimensions:25x17cm"),
+            ProductModel(sku="PRD-006", barcode="4000000000006", name="AirPods Pro 2", price=24990, stock=56, location="A-02-02", category_id=2, description="brand:Apple|country:Вьетнам|category:Electronics|weight:50g|dimensions:5x5cm"),
+            ProductModel(sku="PRD-007", barcode="4000000000007", name="Logitech MX Keys", price=8990, stock=8, location="B-01-01", category_id=3, description="brand:Logitech|country:Швейцария|category:Computer Accessories|weight:810g|dimensions:43x13cm"),
+            ProductModel(sku="PRD-008", barcode="4000000000008", name="JBL Flip 6", price=12990, stock=24, location="B-01-02", category_id=2, description="brand:JBL|country:Китай|category:Electronics|weight:550g|dimensions:18x7cm"),
+            ProductModel(sku="PRD-009", barcode="PRD12345", name="Беспроводные наушники", price=4990, stock=15, location="A-02-03", category_id=2, description="brand:Sony|country:Китай|category:Electronics|weight:250g|dimensions:10x5cm"),
+            ProductModel(sku="PRD-010", barcode="PRD23456", name="Белковый порошок", price=3990, stock=40, location="C-01-01", category_id=1, description="brand:Optimum Nutrition|country:США|category:Health & Fitness|weight:2kg|dimensions:20x15cm"),
+            ProductModel(sku="PRD-011", barcode="PRD34567", name="Механическая клавиатура", price=7990, stock=6, location="B-02-01", category_id=3, description="brand:Logitech|country:Тайвань|category:Computer Accessories|weight:1.2kg|dimensions:45x15cm"),
+            ProductModel(sku="PRD-012", barcode="PRD45678", name="Кофеварка", price=15990, stock=3, location="C-02-01", category_id=1, description="brand:DeLonghi|country:Италия|category:Kitchen Appliances|weight:4kg|dimensions:30x25cm"),
+        ]
+        db.add_all(products)
+
+        zones = [
+            WarehouseZoneModel(code="A", name="Электроника", capacity=1000, used=750),
+            WarehouseZoneModel(code="B", name="Бытовая техника", capacity=800, used=600),
+            WarehouseZoneModel(code="C", name="Одежда", capacity=1200, used=400),
+            WarehouseZoneModel(code="D", name="Продукты", capacity=500, used=480),
+        ]
+        db.add_all(zones)
+
+        db.commit()
+        print(f"[{SERVICE_NAME}] Database initialized!")
     finally:
         db.close()
 
@@ -188,17 +250,18 @@ def init_database():
 # APP
 # =============================================================================
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(_: FastAPI):
     init_database()
-    print(f"[{SERVICE_NAME}] Starting on port {SERVICE_PORT}...")
+    verify_redis_connection()
+    print(f"[{SERVICE_NAME}] Starting on port {SERVICE_PORT} (DDD+CQRS+Redis)...")
     yield
     print(f"[{SERVICE_NAME}] Shutting down...")
 
 
 app = FastAPI(
-    title="Product Service",
-    description="Микросервис управления товарами WMS",
-    version="1.0.0",
+    title="Product Service (DDD + CQRS + Redis)",
+    description="Микросервис управления товарами WMS.",
+    version="2.0.0",
     lifespan=lifespan,
 )
 
@@ -217,162 +280,144 @@ app.add_middleware(
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": SERVICE_NAME, "port": SERVICE_PORT}
+    return {"status": "ok", "service": SERVICE_NAME, "port": SERVICE_PORT, "architecture": "DDD+CQRS+Redis"}
 
-
-# ==================== Public API ====================
 
 @app.get("/products")
 def get_products(
-    page: int = 1,
-    limit: int = 20,
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
     search: Optional[str] = None,
     category: Optional[int] = None,
-    db: Session = Depends(get_db)
+    query_bus: QueryBus = Depends(get_query_bus),
 ):
-    """Список товаров"""
-    query = db.query(Product)
-    
-    if search:
-        query = query.filter(
-            Product.name.ilike(f"%{search}%") |
-            Product.sku.ilike(f"%{search}%")
-        )
-    if category:
-        query = query.filter(Product.category_id == category)
-    
-    total = query.count()
-    products = query.order_by(Product.created_at.desc()).offset((page - 1) * limit).limit(limit).all()
-    
+    result = query_bus.ask(ListProductsQuery(page=page, limit=limit, search=search, category=category))
+
     return {
-        "data": [ProductResponse.model_validate(p) for p in products],
-        "meta": {"page": page, "limit": limit, "total": total}
+        "data": [_product_to_response(p) for p in result["items"]],
+        "meta": {"page": result["page"], "limit": result["limit"], "total": result["total"]},
     }
 
 
-@app.get("/products/{product_id}", response_model=ProductResponse)
-def get_product(product_id: int, db: Session = Depends(get_db)):
-    """Получить товар"""
-    product = db.query(Product).filter(Product.id == product_id).first()
-    if not product:
+@app.get("/products/{product_id}")
+def get_product(product_id: int, query_bus: QueryBus = Depends(get_query_bus)):
+    r = get_redis()
+    cached = r.get(f"product:{product_id}")
+    if cached is not None:
+        return json.loads(cached)
+
+    product = query_bus.ask(GetProductQuery(product_id=product_id))
+    if product is None:
         raise HTTPException(status_code=404, detail="Product not found")
-    return ProductResponse.model_validate(product)
+
+    response = _product_to_response(product)
+    r.setex(f"product:{product_id}", 300, json.dumps(response, default=str))
+
+    return response
 
 
-@app.post("/products", response_model=ProductResponse, status_code=201)
-def create_product(data: ProductCreate, db: Session = Depends(get_db)):
-    """Создать товар"""
-    if db.query(Product).filter(Product.sku == data.sku.strip()).first():
+@app.post("/products", status_code=201)
+def create_product(
+    data: ProductCreate,
+    service: ProductApplicationService = Depends(get_product_service),
+    command_bus: CommandBus = Depends(get_command_bus),
+):
+    existing = SQLAlchemyProductRepository(next(get_db())).find_by_sku(data.sku.strip())
+    if existing is not None:
         raise HTTPException(status_code=409, detail="Такой артикул уже есть")
-    barcode = f"400{random.randint(1000000000, 9999999999)}"
-    location = f"A-0{random.randint(1, 9)}-0{random.randint(1, 9)}"
-    
-    product = Product(
-        sku=data.sku,
-        barcode=barcode,
-        name=data.name,
-        description=data.description,
-        price=data.price,
-        stock=data.stock,
-        location=location
-    )
-    
-    db.add(product)
-    db.commit()
-    db.refresh(product)
-    
-    print(f"[{SERVICE_NAME}] Product {data.sku} created")
-    
-    return ProductResponse.model_validate(product)
+
+    try:
+        product = command_bus.dispatch(
+            CreateProductCommand(
+                sku=data.sku,
+                name=data.name,
+                description=data.description,
+                price=data.price,
+                stock=data.stock,
+            )
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    print(f"[{SERVICE_NAME}] Product {data.sku} created via CQRS+DDD")
+
+    return _product_to_response(product)
 
 
 @app.delete("/products/{product_id}", status_code=204)
-def delete_product(product_id: int, db: Session = Depends(get_db)):
-    """Удалить товар"""
-    product = db.query(Product).filter(Product.id == product_id).first()
-    if not product:
+def delete_product(
+    product_id: int,
+    command_bus: CommandBus = Depends(get_command_bus),
+):
+    deleted = command_bus.dispatch(DeleteProductCommand(product_id=product_id))
+    if not deleted:
         raise HTTPException(status_code=404, detail="Product not found")
-    
-    db.delete(product)
-    db.commit()
-    
+
     print(f"[{SERVICE_NAME}] Product {product_id} deleted")
 
 
+@app.patch("/products/{product_id}")
+def update_product(
+    product_id: int,
+    data: ProductUpdate,
+    command_bus: CommandBus = Depends(get_command_bus),
+):
+    updates = data.model_dump(exclude_unset=True)
+    product = command_bus.dispatch(
+        UpdateProductCommand(product_id=product_id, **updates)
+    )
+    if product is None:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    r = get_redis()
+    r.delete(f"product:{product_id}")
+
+    print(f"[{SERVICE_NAME}] Product {product_id} updated via CQRS: {list(updates.keys())}")
+    return _product_to_response(product)
+
+
 @app.get("/categories")
-def get_categories(db: Session = Depends(get_db)):
-    """Список категорий"""
-    return db.query(Category).filter(Category.is_active == True).all()
+def get_categories(query_bus: QueryBus = Depends(get_query_bus)):
+    return query_bus.ask(ListCategoriesQuery())
 
 
 @app.get("/zones")
-def get_zones(db: Session = Depends(get_db)):
-    """Список зон склада"""
-    return db.query(WarehouseZone).filter(WarehouseZone.is_active == True).all()
+def get_zones(query_bus: QueryBus = Depends(get_query_bus)):
+    return query_bus.ask(ListZonesQuery())
 
-
-# ==================== Internal API (для Order Service) ====================
 
 @app.post("/internal/reserve")
 def reserve_products(
     data: ReserveRequest,
     _: bool = Depends(verify_internal_key),
-    db: Session = Depends(get_db)
+    command_bus: CommandBus = Depends(get_command_bus),
 ):
-    """
-    Резервирование товаров (внутренний API).
-    Вызывается Order Service при создании заказа.
-    """
-    reserved_items = []
-    
-    for item in data.items:
-        product = db.query(Product).filter(Product.id == item.product_id).first()
-        if not product:
-            continue
-        
-        available = product.stock - product.reserved
-        if available >= item.quantity:
-            product.reserved += item.quantity
-            reserved_items.append({
-                "product_id": item.product_id,
-                "quantity": item.quantity,
-                "reserved": True
-            })
-        else:
-            reserved_items.append({
-                "product_id": item.product_id,
-                "quantity": item.quantity,
-                "reserved": False,
-                "available": available
-            })
-    
-    db.commit()
-    
-    print(f"[{SERVICE_NAME}] Reserved {len([i for i in reserved_items if i.get('reserved')])} items")
-    
-    return {"items": reserved_items}
+    result = command_bus.dispatch(
+        ReserveStockCommand(
+            items=tuple({"product_id": i.product_id, "quantity": i.quantity} for i in data.items)
+        )
+    )
+
+    print(f"[{SERVICE_NAME}] Reserved {len([i for i in result if i.get('reserved')])} items")
+
+    return {"items": result}
 
 
 @app.post("/internal/release")
 def release_products(
     data: ReserveRequest,
     _: bool = Depends(verify_internal_key),
-    db: Session = Depends(get_db)
+    command_bus: CommandBus = Depends(get_command_bus),
 ):
-    """
-    Освобождение резерва (внутренний API).
-    Вызывается при отмене заказа.
-    """
-    for item in data.items:
-        product = db.query(Product).filter(Product.id == item.product_id).first()
-        if product:
-            product.reserved = max(0, product.reserved - item.quantity)
-    
-    db.commit()
-    
+    result = command_bus.dispatch(
+        ReleaseStockCommand(
+            items=tuple({"product_id": i.product_id, "quantity": i.quantity} for i in data.items)
+        )
+    )
+
     print(f"[{SERVICE_NAME}] Released reserve for {len(data.items)} items")
-    
-    return {"status": "released"}
+
+    return result
 
 
 # =============================================================================
@@ -380,4 +425,5 @@ def release_products(
 # =============================================================================
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=SERVICE_PORT)

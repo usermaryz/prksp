@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { observer } from 'mobx-react-lite';
 import { ProductPlacementViewModel } from '../viewmodels/ProductPlacementViewModel';
 import AppLayout from '../components/layout/AppLayout';
@@ -10,9 +10,13 @@ import Table from '../components/common/Table';
 import PlacementModal from '../components/ProductModal';
 import { Placement } from '../models/PlacementModel';
 
-const vm = new ProductPlacementViewModel();
-
 const ProductPlacementPage: React.FC = observer(() => {
+  const [vm] = useState(() => new ProductPlacementViewModel());
+
+  useEffect(() => {
+    void vm.loadFromApi();
+  }, [vm]);
+
   const columns = [
     { header: 'Товар', accessor: 'productName' as keyof Placement },
     { header: 'Штрих-код', accessor: 'barcode' as keyof Placement },
@@ -59,7 +63,7 @@ const ProductPlacementPage: React.FC = observer(() => {
     <AppLayout>
       <PageHeader title="Склад" subtitle="Управление размещением товаров на складе" />
 
-      <div className="mb-6">
+      <div className="mb-6 flex flex-col sm:flex-row gap-4 sm:items-center sm:justify-between">
         <Input
           type="text"
           value={vm.search}
@@ -67,14 +71,27 @@ const ProductPlacementPage: React.FC = observer(() => {
           placeholder="Поиск по товару или штрих-коду..."
           className="max-w-xl"
         />
+        <button type="button" onClick={() => vm.openModal()} className={btnPrimary}>
+          Новое размещение
+        </button>
       </div>
 
+      {vm.error && (
+        <div className="mb-4 rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">{vm.error}</div>
+      )}
+
       <Card title="Недавние размещения" subtitle="Последние 10 размещений товаров">
-        <Table
-          columns={columns}
-          data={vm.filteredPlacements}
-          onRowClick={placement => vm.acceptPlacement(placement)}
-        />
+        {vm.loading ? (
+          <p className="px-6 py-8 text-sm text-slate-500">Загрузка данных склада...</p>
+        ) : vm.filteredPlacements.length === 0 ? (
+          <p className="px-6 py-8 text-sm text-slate-500">Нет размещений. Нажмите «Новое размещение».</p>
+        ) : (
+          <Table
+            columns={columns}
+            data={vm.filteredPlacements}
+            onRowClick={placement => vm.acceptPlacement(placement)}
+          />
+        )}
       </Card>
 
       {vm.showModal && (

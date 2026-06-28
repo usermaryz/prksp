@@ -15,6 +15,7 @@ Event Publisher
 
 from typing import Optional
 import httpx
+import os
 
 from ..domain.events import (
     DomainEvent,
@@ -33,13 +34,22 @@ class EventPublisher:
     
     def __init__(
         self,
-        picking_service_url: str = "http://localhost:8004",
-        logistics_service_url: str = "http://localhost:8005",
-        internal_api_key: str = "internal-service-key-2024"
+        picking_service_url: Optional[str] = None,
+        logistics_service_url: Optional[str] = None,
+        internal_api_key: Optional[str] = None,
     ):
-        self._picking_url = picking_service_url
-        self._logistics_url = logistics_service_url
-        self._api_key = internal_api_key
+        from ..wms_config import require_env
+
+        self._picking_url = picking_service_url or os.getenv(
+            "PICKING_SERVICE_URL", "http://localhost:8005"
+        )
+        self._logistics_url = logistics_service_url or os.getenv(
+            "LOGISTICS_SERVICE_URL", "http://localhost:8006"
+        )
+        self._api_key = internal_api_key or require_env(
+            "INTERNAL_API_KEY",
+            "Generate with: openssl rand -hex 32",
+        )
     
     async def publish(self, event: DomainEvent) -> None:
         """

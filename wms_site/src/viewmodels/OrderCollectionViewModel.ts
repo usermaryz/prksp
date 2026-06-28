@@ -31,7 +31,6 @@ export class OrderCollectionViewModel {
 
   constructor() {
     makeAutoObservable(this);
-    void this.loadOrders();
   }
 
   async loadOrders() {

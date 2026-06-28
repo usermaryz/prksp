@@ -22,7 +22,8 @@ export interface Product {
   category?: Category;
   brand_id?: number;
   brand?: Brand;
-  status: 'active' | 'inactive' | 'discontinued';
+  status: string;
+  location?: string;
   min_stock_level: number;
   max_stock_level: number;
   reorder_point: number;
@@ -73,7 +74,8 @@ export interface ProductUpdate {
   cost_price?: number;
   category_id?: number;
   brand_id?: number;
-  status?: 'active' | 'inactive' | 'discontinued';
+  status?: string;
+  location?: string;
   min_stock_level?: number;
   max_stock_level?: number;
   reorder_point?: number;

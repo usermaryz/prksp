@@ -124,7 +124,10 @@ services:
     container_name: prksp-auth-service
     environment:
       DATABASE_URL: postgresql+asyncpg://auth_user:auth_password@auth-db:5432/auth_db
-      SECRET_KEY: ${SECRET_KEY:-prksp-auth-secret-key-min-32-chars}
+      SECRET_KEY: "${SECRET_KEY:?SECRET_KEY must be set. Run: export SECRET_KEY=$(openssl rand -hex 32)}"
+      INTERNAL_API_KEY: "${INTERNAL_API_KEY:?INTERNAL_API_KEY must be set. Run: export INTERNAL_API_KEY=$(openssl rand -hex 32)}"
+      ENABLE_DEMO_SEED: ${ENABLE_DEMO_SEED:-true}
+      REDIS_URL: redis://redis:6379/0
       SERVICE_PORT: "8001"
     depends_on:
       auth-db:
@@ -139,6 +142,8 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://product_user:product_password@product-db:5432/product_db
       SERVICE_PORT: "8002"
+      INTERNAL_API_KEY: "${INTERNAL_API_KEY:?INTERNAL_API_KEY must be set}"
+      REDIS_URL: redis://redis:6379/1
     depends_on:
       product-db:
         condition: service_healthy
@@ -155,6 +160,8 @@ services:
       DATABASE_URL: postgresql+asyncpg://order_user:order_password@order-db:5432/order_db
       SERVICE_PORT: "8003"
       PICKING_SERVICE_URL: http://picking-service:8005
+      INTERNAL_API_KEY: "${INTERNAL_API_KEY:?INTERNAL_API_KEY must be set}"
+      REDIS_URL: redis://redis:6379/2
     depends_on:
       order-db:
         condition: service_healthy
@@ -170,6 +177,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://inventory_user:inventory_password@inventory-db:5432/inventory_db
       SERVICE_PORT: "8004"
+      REDIS_URL: redis://redis:6379/3
     depends_on:
       inventory-db:
         condition: service_healthy
@@ -184,6 +192,8 @@ services:
       DATABASE_URL: postgresql+asyncpg://picking_user:picking_password@picking-db:5432/picking_db
       SERVICE_PORT: "8005"
       ORDER_SERVICE_URL: http://order-service:8003
+      INTERNAL_API_KEY: "${INTERNAL_API_KEY:?INTERNAL_API_KEY must be set}"
+      REDIS_URL: redis://redis:6379/4
     depends_on:
       picking-db:
         condition: service_healthy
@@ -199,6 +209,8 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://logistics_user:logistics_password@logistics-db:5432/logistics_db
       SERVICE_PORT: "8006"
+      INTERNAL_API_KEY: "${INTERNAL_API_KEY:?INTERNAL_API_KEY must be set}"
+      REDIS_URL: redis://redis:6379/5
     depends_on:
       logistics-db:
         condition: service_healthy
@@ -219,13 +231,23 @@ services:
       PICKING_SERVICE_URL: http://picking-service:8005
       LOGISTICS_SERVICE_URL: http://logistics-service:8006
       SERVICE_PORT: "8000"
+      REDIS_URL: redis://redis:6379/0
+      INTERNAL_API_KEY: "${INTERNAL_API_KEY:?INTERNAL_API_KEY must be set}"
     depends_on:
-      - auth-service
-      - product-service
-      - order-service
-      - inventory-service
-      - picking-service
-      - logistics-service
+      redis:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+      product-service:
+        condition: service_started
+      order-service:
+        condition: service_started
+      inventory-service:
+        condition: service_started
+      picking-service:
+        condition: service_started
+      logistics-service:
+        condition: service_started
     networks:
       - prksp-network
     restart: unless-stopped

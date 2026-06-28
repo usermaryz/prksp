@@ -47,8 +47,7 @@ export class ProductPlacementViewModel {
   shelves: Shelf[] = defaultShelves;
 
   constructor() {
-    makeAutoObservable(this);
-    void this.loadFromApi();
+    makeAutoObservable(this, {}, { autoBind: true });
   }
 
   async loadFromApi() {
@@ -217,7 +216,7 @@ export class ProductPlacementViewModel {
     }
   }
 
-  confirmPlacement(_user: string) {
+  async confirmPlacement(_user: string) {
     if (!this.isFormValid || !this.scannedProduct) {
       this.showError = true;
       this.errorMessage = 'Пожалуйста, заполните все обязательные поля';
@@ -225,20 +224,28 @@ export class ProductPlacementViewModel {
       return;
     }
     const zoneName = this.zones.find(z => z.id === this.selectedZone)?.name || this.selectedZone;
-    const newPlacement: Placement = {
-      id: Date.now(),
-      productName: this.scannedProduct.name,
-      barcode: this.scannedProduct.barcode,
-      location: `${zoneName}, ${this.selectedAisle}, ${this.selectedShelf}`,
-      timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
-      quantity: parseInt(this.quantity, 10),
-      status: 'Завершен',
-    };
-    this.recentPlacements = [newPlacement, ...this.recentPlacements].slice(0, 12);
-    void placementApi.updateProductLocation(this.scannedProduct.id, newPlacement.location);
-    this.closeModal();
-    this.showSuccess = true;
-    setTimeout(() => (this.showSuccess = false), 2000);
+    const location = `${zoneName}, ${this.selectedAisle}, ${this.selectedShelf}`;
+    try {
+      await placementApi.updateProductLocation(this.scannedProduct.id, location);
+      const newPlacement: Placement = {
+        id: Date.now(),
+        productName: this.scannedProduct.name,
+        barcode: this.scannedProduct.barcode,
+        location,
+        timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
+        quantity: parseInt(this.quantity, 10),
+        status: 'Завершен',
+      };
+      this.recentPlacements = [newPlacement, ...this.recentPlacements].slice(0, 12);
+      this.closeModal();
+      this.showSuccess = true;
+      setTimeout(() => (this.showSuccess = false), 2000);
+    } catch (e) {
+      this.showError = true;
+      this.errorMessage = 'Не удалось сохранить размещение на сервере';
+      setTimeout(() => (this.showError = false), 3000);
+      console.error(e);
+    }
   }
 
   acceptPlacement(placement: Placement) {

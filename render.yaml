@@ -1,8 +1,197 @@
-# Render Blueprint: для микросервисного стека удобнее VPS + docker compose.
-# См. docker-compose.prod.yml и README.md.
-#
-# Ниже — заглушка; полный деплой 6 сервисов + Postgres на free tier не поддерживается одним web-сервисом.
-
 version: "1"
 
-services: []
+# =============================================================================
+# WMS Microservices — Render Blueprint
+#
+# Деплой:
+#   1. Запушить репозиторий на GitHub
+#   2. Render Dashboard → New → Blueprint → выбрать репо
+#   3. Задать переменные (sync: false) в интерфейсе Render:
+#      - SECRET_KEY       : openssl rand -hex 32
+#      - INTERNAL_API_KEY : openssl rand -hex 16
+#
+# Private services общаются по адресу http://<name>:10000
+# (Render private network, порт 10000 — это $PORT по умолчанию).
+# =============================================================================
+
+databases:
+  - name: wms-auth-db
+    plan: free
+    databaseName: auth_db
+    user: auth_user
+
+  - name: wms-product-db
+    plan: free
+    databaseName: product_db
+    user: product_user
+
+  - name: wms-order-db
+    plan: free
+    databaseName: order_db
+    user: order_user
+
+  - name: wms-inventory-db
+    plan: free
+    databaseName: inventory_db
+    user: inventory_user
+
+  - name: wms-picking-db
+    plan: free
+    databaseName: picking_db
+    user: picking_user
+
+  - name: wms-logistics-db
+    plan: free
+    databaseName: logistics_db
+    user: logistics_user
+
+services:
+  # ---------------------------------------------------------------------------
+  # auth-service
+  # ---------------------------------------------------------------------------
+  - type: pserv
+    name: wms-auth
+    runtime: docker
+    dockerfilePath: ./microservices/auth-service/Dockerfile
+    dockerContext: ./microservices/auth-service
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: wms-auth-db
+          property: connectionString
+      - key: SECRET_KEY
+        sync: false
+      - key: INTERNAL_API_KEY
+        sync: false
+      - key: ENABLE_DEMO_SEED
+        value: "true"
+
+  # ---------------------------------------------------------------------------
+  # product-service
+  # ---------------------------------------------------------------------------
+  - type: pserv
+    name: wms-product
+    runtime: docker
+    dockerfilePath: ./microservices/product-service/Dockerfile
+    dockerContext: ./microservices/product-service
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: wms-product-db
+          property: connectionString
+      - key: INTERNAL_API_KEY
+        sync: false
+
+  # ---------------------------------------------------------------------------
+  # order-service
+  # ---------------------------------------------------------------------------
+  - type: pserv
+    name: wms-order
+    runtime: docker
+    dockerfilePath: ./microservices/order-service/Dockerfile
+    dockerContext: ./microservices/order-service
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: wms-order-db
+          property: connectionString
+      - key: INTERNAL_API_KEY
+        sync: false
+      - key: PICKING_SERVICE_URL
+        value: http://wms-picking:10000
+
+  # ---------------------------------------------------------------------------
+  # inventory-service
+  # ---------------------------------------------------------------------------
+  - type: pserv
+    name: wms-inventory
+    runtime: docker
+    dockerfilePath: ./microservices/inventory-service/Dockerfile
+    dockerContext: ./microservices/inventory-service
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: wms-inventory-db
+          property: connectionString
+
+  # ---------------------------------------------------------------------------
+  # picking-service
+  # ---------------------------------------------------------------------------
+  - type: pserv
+    name: wms-picking
+    runtime: docker
+    dockerfilePath: ./microservices/picking-service/Dockerfile
+    dockerContext: ./microservices/picking-service
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: wms-picking-db
+          property: connectionString
+      - key: INTERNAL_API_KEY
+        sync: false
+      - key: ORDER_SERVICE_URL
+        value: http://wms-order:10000
+      - key: LOGISTICS_SERVICE_URL
+        value: http://wms-logistics:10000
+
+  # ---------------------------------------------------------------------------
+  # logistics-service
+  # ---------------------------------------------------------------------------
+  - type: pserv
+    name: wms-logistics
+    runtime: docker
+    dockerfilePath: ./microservices/logistics-service/Dockerfile
+    dockerContext: ./microservices/logistics-service
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: wms-logistics-db
+          property: connectionString
+      - key: INTERNAL_API_KEY
+        sync: false
+      - key: ORDER_SERVICE_URL
+        value: http://wms-order:10000
+
+  # ---------------------------------------------------------------------------
+  # api-gateway  (единственный публичный сервис)
+  # ---------------------------------------------------------------------------
+  - type: web
+    name: wms-api-gateway
+    runtime: docker
+    dockerfilePath: ./microservices/api-gateway/Dockerfile
+    dockerContext: ./microservices/api-gateway
+    healthCheckPath: /health
+    envVars:
+      - key: AUTH_SERVICE_URL
+        value: http://wms-auth:10000
+      - key: PRODUCT_SERVICE_URL
+        value: http://wms-product:10000
+      - key: ORDER_SERVICE_URL
+        value: http://wms-order:10000
+      - key: INVENTORY_SERVICE_URL
+        value: http://wms-inventory:10000
+      - key: PICKING_SERVICE_URL
+        value: http://wms-picking:10000
+      - key: LOGISTICS_SERVICE_URL
+        value: http://wms-logistics:10000
+      - key: INTERNAL_API_KEY
+        sync: false
+
+  # ---------------------------------------------------------------------------
+  # frontend  (статика + nginx-прокси на api-gateway)
+  # ---------------------------------------------------------------------------
+  - type: web
+    name: wms-frontend
+    runtime: docker
+    dockerfilePath: ./wms_site/Dockerfile
+    dockerContext: ./wms_site
+    healthCheckPath: /health
+    envVars:
+      - key: BACKEND_URL
+        value: https://wms-api-gateway.onrender.com

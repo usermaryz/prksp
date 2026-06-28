@@ -17,10 +17,15 @@ from fastapi.responses import JSONResponse
 
 from app.auth_policy import is_public_path, required_roles
 from app.rate_limit import allow_request
+from app.redis_client import verify_redis_connection
+from app.wms_config import require_env
 
 SERVICE_NAME = "api-gateway"
 SERVICE_PORT = int(os.getenv("SERVICE_PORT", "8000"))
-INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "internal-service-key-2024")
+INTERNAL_API_KEY = require_env(
+    "INTERNAL_API_KEY",
+    "Generate with: openssl rand -hex 32",
+)
 
 SERVICES = {
     "auth": os.getenv("AUTH_SERVICE_URL", "http://localhost:8001"),
@@ -92,6 +97,7 @@ async def proxy_request(
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    verify_redis_connection()
     logger.info("Starting %s on port %s", SERVICE_NAME, SERVICE_PORT)
     for name, url in SERVICES.items():
         logger.info("  %s -> %s", name, url)
@@ -300,6 +306,18 @@ async def delete_product(product_id: int, request: Request):
     )
 
 
+@app.patch("/api/products/{product_id}")
+async def update_product(product_id: int, request: Request):
+    body = await request.json()
+    return await proxy_request(
+        "product",
+        f"/products/{product_id}",
+        "PATCH",
+        body=body,
+        headers={"Authorization": request.headers.get("authorization", "")},
+    )
+
+
 @app.get("/api/orders")
 async def get_orders(request: Request):
     return await proxy_request(
@@ -381,6 +399,29 @@ async def inventory_list(request: Request):
         "/inventory",
         "GET",
         params=dict(request.query_params),
+        headers={"Authorization": request.headers.get("authorization", "")},
+    )
+
+
+@app.get("/api/inventory/movements")
+async def inventory_movements_list(request: Request):
+    return await proxy_request(
+        "inventory",
+        "/movements",
+        "GET",
+        params=dict(request.query_params),
+        headers={"Authorization": request.headers.get("authorization", "")},
+    )
+
+
+@app.post("/api/inventory/movements")
+async def inventory_movements_create(request: Request):
+    body = await request.json()
+    return await proxy_request(
+        "inventory",
+        "/movements",
+        "POST",
+        body=body,
         headers={"Authorization": request.headers.get("authorization", "")},
     )
 

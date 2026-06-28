@@ -68,7 +68,7 @@ function mapZone(z: {
 
 export const placementApi = {
   async getProducts(): Promise<Product[]> {
-    const res = await productApi.getProducts({ limit: 200 });
+    const res = await productApi.getProducts({ limit: 100 });
     return res.data.map(p =>
       mapProduct({
         id: p.id,
@@ -87,10 +87,14 @@ export const placementApi = {
   },
 
   async updateProductLocation(productId: number, location: string): Promise<Product> {
-    const products = await this.getProducts();
-    const found = products.find(p => p.id === productId);
-    if (!found) throw new Error('Product not found');
-    return { ...found, location, status: 'completed' };
+    const updated = await productApi.updateProduct(productId, { location });
+    return mapProduct({
+      id: updated.id,
+      sku: updated.sku,
+      barcode: updated.barcode,
+      name: updated.name,
+      location: updated.location,
+    });
   },
 
   async searchProducts(query: string): Promise<Product[]> {

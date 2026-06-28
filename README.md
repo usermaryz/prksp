@@ -22,6 +22,8 @@
 Из корня репозитория:
 
 ```bash
+export SECRET_KEY="$(openssl rand -hex 32)"
+export INTERNAL_API_KEY="$(openssl rand -hex 32)"
 docker compose up --build
 ```
 
@@ -29,15 +31,43 @@ docker compose up --build
 - **API Gateway:** http://localhost:8000  
 - **Swagger:** http://localhost:8000/api/docs  
 
-Демо-логины (auth-service): `admin` / `admin`, `manager` / `manager`, `picker` / `picker`.
+Демо-логины (при `ENABLE_DEMO_SEED=true`, по умолчанию): `admin` / `admin`, `manager` / `manager`, `picker` / `picker`.  
+Отключить сид: `ENABLE_DEMO_SEED=false`. Redis используется для rate-limit (gateway), кэша и ревокации refresh-токенов.
 
 Остановка: `docker compose down`. Данные PostgreSQL в именованных томах.
 
-## Локальная разработка (фронт + gateway)
+## Локальная разработка (без Docker)
 
-1. Поднять бэкенд:
+1. Один раз — venv и секреты:
 
 ```bash
+cd microservices
+PYTHON=python3.12 ./bootstrap_local.sh   # создаёт venv и .env.local
+brew install redis && brew services start redis   # обязательно для Redis
+```
+
+2. Бэкенд:
+
+```bash
+cd microservices
+./start_all.sh
+```
+
+3. Фронт:
+
+```bash
+cd wms_site && npm install && npm start
+```
+
+Открыть http://localhost:3000 — webpack проксирует `/api` на gateway (:8000).
+
+## Локальная разработка (фронт + Docker gateway)
+
+1. Поднять бэкенд в Docker:
+
+```bash
+export SECRET_KEY="$(openssl rand -hex 32)"
+export INTERNAL_API_KEY="$(openssl rand -hex 32)"
 docker compose up --build
 ```
 
@@ -55,6 +85,7 @@ npm start
 
 ```bash
 export SECRET_KEY="$(openssl rand -hex 32)"
+export INTERNAL_API_KEY="$(openssl rand -hex 32)"
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 

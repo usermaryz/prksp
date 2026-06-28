@@ -1,28 +1,15 @@
 """
-Order Service - Микросервис заказов с DDD архитектурой
-======================================================
+Order Service — CQRS + DDD architecture.
 
-Архитектура:
-├── domain/           # Бизнес-логика (Entity, Value Objects, Events)
-├── application/      # Use Cases (Application Services)
-├── infrastructure/   # Реализация (Repository, Event Publisher)
-└── main.py          # API Layer (FastAPI endpoints)
-
-Порт: 8003
-База данных: orders.db (SQLite)
-
-Паттерны DDD:
-- Aggregate Root (Order)
-- Value Objects (Money, OrderStatus)
-- Domain Events
-- Repository Pattern
-- Application Service
+Layers:
+  domain/         — Aggregate Root, Value Objects, Domain Events
+  application/    — Commands, Queries, Handlers, CommandBus, QueryBus
+  infrastructure/ — SQLAlchemy Repository, EventPublisher
+  main.py         — FastAPI endpoints (thin adapter)
 """
 
 from contextlib import asynccontextmanager
-from datetime import datetime
-from typing import Optional, List
-from decimal import Decimal
+from typing import List, Optional
 import os
 
 from fastapi import FastAPI, HTTPException, Depends, Header, BackgroundTasks, Query
@@ -31,21 +18,26 @@ from pydantic import BaseModel
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 
-# Domain Layer
-from .domain.entities import Order
-from .domain.value_objects import Money, OrderStatus, OrderStatusEnum
-
-# Application Layer
-from .application.services import OrderApplicationService
-from .application.services.order_application_service import (
-    CreateOrderDTO, 
-    AddItemDTO,
-    OrderDTO
+from .application.bus import CommandBus, QueryBus
+from .application.commands import (
+    CreateOrderCommand,
+    ChangeStatusCommand,
+    AddItemCommand,
+    CancelOrderCommand,
 )
-
-# Infrastructure Layer
+from .application.commands.create_order_command import OrderItemData
+from .application.queries import GetOrderQuery, ListOrdersQuery
+from .application.handlers.command_handlers import (
+    handle_create_order,
+    handle_change_status,
+    handle_add_item,
+    handle_cancel_order,
+)
+from .application.handlers.query_handlers import handle_get_order, handle_list_orders
+from .application.services import OrderApplicationService
+from .application.services.order_application_service import CreateOrderDTO, AddItemDTO
 from .infrastructure.persistence import Base, SQLAlchemyOrderRepository
-from .infrastructure.event_publisher import get_event_publisher
+from .wms_config import require_env
 
 
 # =============================================================================
@@ -54,13 +46,22 @@ from .infrastructure.event_publisher import get_event_publisher
 SERVICE_NAME = "order-service"
 SERVICE_PORT = int(os.getenv("SERVICE_PORT", "8003"))
 DATABASE_PATH = os.path.join(os.path.dirname(__file__), "..", "orders.db")
-_raw_db = os.getenv("DATABASE_URL", "").strip()
-DATABASE_URL = (
-    _raw_db.replace("postgresql+asyncpg://", "postgresql+psycopg2://", 1)
-    if _raw_db
-    else f"sqlite:///{DATABASE_PATH}"
+def _sync_db_url(raw: str, fallback: str) -> str:
+    if not raw:
+        return fallback
+    raw = raw.replace("postgresql+asyncpg://", "postgresql+psycopg2://", 1)
+    if raw.startswith("postgres://"):
+        raw = "postgresql+psycopg2://" + raw[len("postgres://"):]
+    return raw
+
+DATABASE_URL = _sync_db_url(
+    os.getenv("DATABASE_URL", "").strip(),
+    f"sqlite:///{DATABASE_PATH}",
 )
-INTERNAL_API_KEY = "internal-service-key-2024"
+INTERNAL_API_KEY = require_env(
+    "INTERNAL_API_KEY",
+    "Generate with: openssl rand -hex 32",
+)
 
 _connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 engine = create_engine(DATABASE_URL, connect_args=_connect_args)
@@ -68,10 +69,9 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
 # =============================================================================
-# PYDANTIC SCHEMAS (API Layer)
+# PYDANTIC SCHEMAS
 # =============================================================================
 class OrderItemCreateRequest(BaseModel):
-    """Запрос на добавление позиции"""
     product_id: int
     product_name: str
     product_sku: str = ""
@@ -80,7 +80,6 @@ class OrderItemCreateRequest(BaseModel):
 
 
 class OrderCreateRequest(BaseModel):
-    """Запрос на создание заказа"""
     customer_name: str
     customer_phone: str
     customer_email: Optional[str] = None
@@ -91,16 +90,14 @@ class OrderCreateRequest(BaseModel):
 
 
 class StatusUpdateRequest(BaseModel):
-    """Запрос на изменение статуса"""
     status: str
     reason: Optional[str] = None
 
 
 # =============================================================================
-# DEPENDENCIES (Dependency Injection)
+# DEPENDENCY INJECTION
 # =============================================================================
 def get_db():
-    """Получение сессии БД"""
     db = SessionLocal()
     try:
         yield db
@@ -109,156 +106,94 @@ def get_db():
 
 
 def get_order_service(db: Session = Depends(get_db)) -> OrderApplicationService:
-    """
-    Dependency Injection для Application Service.
-    
-    Собирает граф зависимостей:
-    Session -> Repository -> ApplicationService
-    """
     repository = SQLAlchemyOrderRepository(db)
-    event_publisher = get_event_publisher()
-    
-    # Wrapper для асинхронной публикации
-    async def publish_event(event):
-        await event_publisher.publish(event)
-    
-    return OrderApplicationService(
-        order_repository=repository,
-        event_publisher=None  # События публикуем через BackgroundTasks
-    )
+    return OrderApplicationService(order_repository=repository, event_publisher=None)
+
+
+def get_command_bus(service: OrderApplicationService = Depends(get_order_service)) -> CommandBus:
+    bus = CommandBus()
+    bus.register(CreateOrderCommand, lambda cmd: handle_create_order(cmd, service))
+    bus.register(ChangeStatusCommand, lambda cmd: handle_change_status(cmd, service))
+    bus.register(AddItemCommand, lambda cmd: handle_add_item(cmd, service))
+    bus.register(CancelOrderCommand, lambda cmd: handle_cancel_order(cmd, service))
+
+    return bus
+
+
+def get_query_bus(service: OrderApplicationService = Depends(get_order_service)) -> QueryBus:
+    bus = QueryBus()
+    bus.register(GetOrderQuery, lambda q: handle_get_order(q, service))
+    bus.register(ListOrdersQuery, lambda q: handle_list_orders(q, service))
+
+    return bus
 
 
 def verify_internal_key(x_internal_key: str = Header(None)):
-    """Проверка внутреннего API ключа"""
     if x_internal_key != INTERNAL_API_KEY:
         raise HTTPException(status_code=403, detail="Invalid internal API key")
+
     return True
 
 
 # =============================================================================
-# INIT
+# INIT / SEED
 # =============================================================================
 def init_database():
-    """Инициализация базы данных"""
     Base.metadata.create_all(bind=engine)
-    
+
     db = SessionLocal()
     try:
         repository = SQLAlchemyOrderRepository(db)
-        if repository.count() == 0:
-            print(f"[{SERVICE_NAME}] Seeding initial data...")
-            
-            # Создаём тестовые заказы через Domain Layer
-            service = OrderApplicationService(repository)
-            
-            # Заказ 1 - Pending
-            order1 = service.create_order(CreateOrderDTO(
-                customer_name="Иван Иванов",
-                customer_phone="+7 999 123-45-67",
-                customer_address="г. Москва, ул. Примерная, д. 1"
-            ))
-            service.add_item(order1.id, AddItemDTO(
-                product_id=1,
-                product_name="iPhone 15 Pro",
-                product_sku="IPH-15-PRO",
-                quantity=1,
-                unit_price=134990.0
-            ))
-            
-            # Заказ 2 - Picking
-            order2 = service.create_order(CreateOrderDTO(
-                customer_name="Мария Петрова",
-                customer_phone="+7 999 234-56-78"
-            ))
-            service.add_item(order2.id, AddItemDTO(
-                product_id=2,
-                product_name="MacBook Air M2",
-                product_sku="MBA-M2",
-                quantity=1,
-                unit_price=109990.0
-            ))
-            service.change_status(order2.id, "confirmed")
-            service.change_status(order2.id, "picking")
-            
-            # Заказ 3 - Shipped
-            order3 = service.create_order(CreateOrderDTO(
-                customer_name="ООО Ромашка",
-                customer_phone="+7 495 111-22-33",
-                priority="high"
-            ))
-            service.add_item(order3.id, AddItemDTO(
-                product_id=3,
-                product_name="iMac 24",
-                product_sku="IMAC-24",
-                quantity=2,
-                unit_price=159990.0
-            ))
-            service.change_status(order3.id, "confirmed")
-            service.change_status(order3.id, "picking")
-            service.change_status(order3.id, "packed")
-            service.change_status(order3.id, "shipped")
+        if repository.count() > 0:
+            return
+        print(f"[{SERVICE_NAME}] Seeding initial data...")
+        service = OrderApplicationService(repository)
 
-            order4 = service.create_order(CreateOrderDTO(
-                customer_name="Алексей Сидоров",
-                customer_phone="+7 916 555-12-34",
-                customer_address="г. Санкт-Петербург, Невский пр., 10",
+        def make_order(customer_name, phone, address=None, priority="normal", items=(), statuses=()):
+            order = service.create_order(CreateOrderDTO(
+                customer_name=customer_name,
+                customer_phone=phone,
+                customer_address=address,
+                priority=priority,
             ))
-            service.add_item(order4.id, AddItemDTO(
-                product_id=4, product_name="MacBook Pro 14", product_sku="PRD-004",
-                quantity=1, unit_price=199990.0,
-            ))
-            service.change_status(order4.id, "confirmed")
+            for pid, name, sku, qty, price in items:
+                order = service.add_item(order.id, AddItemDTO(
+                    product_id=pid, product_name=name, product_sku=sku,
+                    quantity=qty, unit_price=price,
+                ))
+            for s in statuses:
+                order = service.change_status(order.id, s)
 
-            order5 = service.create_order(CreateOrderDTO(
-                customer_name="Елена Козлова",
-                customer_phone="+7 903 777-88-99",
-            ))
-            service.add_item(order5.id, AddItemDTO(
-                product_id=5, product_name="iPad Air", product_sku="PRD-005",
-                quantity=2, unit_price=64990.0,
-            ))
-            service.add_item(order5.id, AddItemDTO(
-                product_id=6, product_name="AirPods Pro 2", product_sku="PRD-006",
-                quantity=1, unit_price=24990.0,
-            ))
-            service.change_status(order5.id, "confirmed")
-            service.change_status(order5.id, "picking")
+            return order
 
-            order6 = service.create_order(CreateOrderDTO(
-                customer_name="ООО ТехноСнаб",
-                customer_phone="+7 495 900-11-22",
-                priority="urgent",
-            ))
-            service.add_item(order6.id, AddItemDTO(
-                product_id=7, product_name="Logitech MX Keys", product_sku="PRD-007",
-                quantity=5, unit_price=8990.0,
-            ))
-            service.change_status(order6.id, "confirmed")
-            service.change_status(order6.id, "picking")
+        make_order("Иван Иванов", "+7 999 123-45-67", "г. Москва, ул. Примерная, д. 1",
+                   items=[(1, "iPhone 15 Pro", "IPH-15-PRO", 1, 134990.0)])
+        make_order("Мария Петрова", "+7 999 234-56-78",
+                   items=[(2, "MacBook Air M2", "MBA-M2", 1, 109990.0)],
+                   statuses=["confirmed", "picking"])
+        make_order("ООО Ромашка", "+7 495 111-22-33", priority="high",
+                   items=[(3, "iMac 24", "IMAC-24", 2, 159990.0)],
+                   statuses=["confirmed", "picking", "packed", "shipped"])
+        make_order("Алексей Сидоров", "+7 916 555-12-34",
+                   address="г. Санкт-Петербург, Невский пр., 10",
+                   items=[(4, "MacBook Pro 14", "PRD-004", 1, 199990.0)],
+                   statuses=["confirmed"])
+        make_order("Елена Козлова", "+7 903 777-88-99",
+                   items=[
+                       (5, "iPad Air", "PRD-005", 2, 64990.0),
+                       (6, "AirPods Pro 2", "PRD-006", 1, 24990.0),
+                   ],
+                   statuses=["confirmed", "picking"])
+        make_order("ООО ТехноСнаб", "+7 495 900-11-22", priority="urgent",
+                   items=[(7, "Logitech MX Keys", "PRD-007", 5, 8990.0)],
+                   statuses=["confirmed", "picking"])
+        make_order("Дмитрий Волков", "+7 926 111-22-33",
+                   items=[(8, "JBL Flip 6", "PRD-008", 1, 12990.0)])
+        make_order("Анна Смирнова", "+7 912 333-44-55", "г. Казань, ул. Баумана, 5",
+                   items=[(3, "Sony WH-1000XM5", "PRD-003", 1, 34990.0)],
+                   statuses=["confirmed", "picking", "packed"])
 
-            order7 = service.create_order(CreateOrderDTO(
-                customer_name="Дмитрий Волков",
-                customer_phone="+7 926 111-22-33",
-            ))
-            service.add_item(order7.id, AddItemDTO(
-                product_id=8, product_name="JBL Flip 6", product_sku="PRD-008",
-                quantity=1, unit_price=12990.0,
-            ))
-
-            order8 = service.create_order(CreateOrderDTO(
-                customer_name="Анна Смирнова",
-                customer_phone="+7 912 333-44-55",
-                customer_address="г. Казань, ул. Баумана, 5",
-            ))
-            service.add_item(order8.id, AddItemDTO(
-                product_id=3, product_name="Sony WH-1000XM5", product_sku="PRD-003",
-                quantity=1, unit_price=34990.0,
-            ))
-            service.change_status(order8.id, "confirmed")
-            service.change_status(order8.id, "picking")
-            service.change_status(order8.id, "packed")
-            
-            print(f"[{SERVICE_NAME}] Database seeded!")
+        print(f"[{SERVICE_NAME}] Database seeded!")
     finally:
         db.close()
 
@@ -267,35 +202,34 @@ def init_database():
 # APP
 # =============================================================================
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(_: FastAPI):
     init_database()
-    print(f"[{SERVICE_NAME}] Starting on port {SERVICE_PORT}...")
-    print(f"[{SERVICE_NAME}] DDD Architecture enabled!")
+    print(f"[{SERVICE_NAME}] Starting on port {SERVICE_PORT} (CQRS + DDD)...")
     yield
     print(f"[{SERVICE_NAME}] Shutting down...")
 
 
 app = FastAPI(
-    title="Order Service (DDD)",
+    title="Order Service (DDD + CQRS)",
     description="""
-    Микросервис управления заказами WMS с Domain-Driven Design.
-    
-    ## Архитектура DDD
-    
-    - **Domain Layer**: Order (Aggregate Root), OrderItem (Entity), Money & OrderStatus (Value Objects)
-    - **Application Layer**: OrderApplicationService (Use Cases)
-    - **Infrastructure Layer**: SQLAlchemyOrderRepository, EventPublisher
-    
-    ## State Machine (переходы статусов)
-    
-    ```
-    PENDING -> CONFIRMED -> PICKING -> PACKED -> SHIPPED -> DELIVERED
-                  |            |          |         |
-                  v            v          v         v
-               CANCELLED  CANCELLED  CANCELLED  RETURNED
-    ```
-    """,
-    version="2.0.0",
+Микросервис управления заказами WMS.
+
+## Архитектура DDD + CQRS
+
+- **Domain Layer**: Order (Aggregate Root), OrderItem (Entity), Money & OrderStatus (Value Objects)
+- **Application Layer**: CommandBus / QueryBus, Commands, Queries, Handlers, OrderApplicationService
+- **Infrastructure Layer**: SQLAlchemyOrderRepository, EventPublisher
+
+## State Machine
+
+```
+PENDING -> CONFIRMED -> PICKING -> PACKED -> SHIPPED -> DELIVERED
+              |            |          |         |
+              v            v          v         v
+           CANCELLED  CANCELLED  CANCELLED  RETURNED
+```
+""",
+    version="3.0.0",
     lifespan=lifespan,
 )
 
@@ -314,13 +248,7 @@ app.add_middleware(
 
 @app.get("/health")
 def health():
-    """Health check"""
-    return {
-        "status": "ok",
-        "service": SERVICE_NAME,
-        "port": SERVICE_PORT,
-        "architecture": "DDD"
-    }
+    return {"status": "ok", "service": SERVICE_NAME, "port": SERVICE_PORT, "architecture": "DDD+CQRS"}
 
 
 @app.get("/orders")
@@ -328,175 +256,138 @@ def get_orders(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
     status: Optional[str] = None,
-    service: OrderApplicationService = Depends(get_order_service)
+    query_bus: QueryBus = Depends(get_query_bus),
 ):
-    """
-    Получить список заказов.
-    
-    Использует Application Service для выполнения Query.
-    """
-    return service.list_orders(status=status, page=page, limit=limit)
+    return query_bus.ask(ListOrdersQuery(status=status, page=page, limit=limit))
 
 
 @app.get("/orders/{order_id}")
-def get_order(
-    order_id: int,
-    service: OrderApplicationService = Depends(get_order_service)
-):
-    """Получить заказ по ID"""
-    order = service.get_order(order_id)
-    if not order:
+def get_order(order_id: int, query_bus: QueryBus = Depends(get_query_bus)):
+    result = query_bus.ask(GetOrderQuery(order_id=order_id))
+    if not result:
         raise HTTPException(status_code=404, detail="Order not found")
-    return order
+
+    return result
 
 
 @app.post("/orders", status_code=201)
 async def create_order(
     request: OrderCreateRequest,
     background_tasks: BackgroundTasks,
-    service: OrderApplicationService = Depends(get_order_service)
+    command_bus: CommandBus = Depends(get_command_bus),
 ):
-    """
-    Создать новый заказ.
-    
-    Процесс (DDD):
-    1. CreateOrderDTO передаётся в Application Service
-    2. Application Service создаёт Order через фабричный метод
-    3. Order генерирует Domain Event (OrderCreated)
-    4. Repository сохраняет агрегат
-    5. Events публикуются в Picking Service
-    """
-    # Создаём заказ через Application Service
-    dto = CreateOrderDTO(
+    command = CreateOrderCommand(
         customer_name=request.customer_name,
         customer_phone=request.customer_phone,
         customer_email=request.customer_email,
         customer_address=request.customer_address,
         priority=request.priority,
-        notes=request.notes
+        notes=request.notes,
+        items=[
+            OrderItemData(
+                product_id=i.product_id,
+                product_name=i.product_name,
+                product_sku=i.product_sku,
+                quantity=i.quantity,
+                unit_price=i.unit_price,
+            )
+            for i in request.items
+        ],
     )
-    
-    order = service.create_order(dto)
-    
-    # Добавляем позиции
-    for item in request.items:
-        item_dto = AddItemDTO(
-            product_id=item.product_id,
-            product_name=item.product_name,
-            product_sku=item.product_sku,
-            quantity=item.quantity,
-            unit_price=item.unit_price
-        )
-        order = service.add_item(order.id, item_dto)
-    
-    # Асинхронная публикация событий
+    try:
+        order = command_bus.dispatch(command)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
     background_tasks.add_task(
-        notify_picking_service,
-        order.id,
-        order.order_number,
-        order.priority
+        notify_picking_service, order.id, order.order_number, order.priority
     )
-    
-    print(f"[{SERVICE_NAME}] Order {order.order_number} created via DDD!")
-    
+    print(f"[{SERVICE_NAME}] Order {order.order_number} created via CQRS+DDD!")
+
     return order
 
 
 @app.patch("/orders/{order_id}/status")
-async def update_order_status(
+def update_order_status(
     order_id: int,
     request: StatusUpdateRequest,
-    service: OrderApplicationService = Depends(get_order_service)
+    command_bus: CommandBus = Depends(get_command_bus),
 ):
-    """
-    Изменить статус заказа.
-    
-    Валидация переходов выполняется Value Object OrderStatus.
-    При недопустимом переходе - ValueError -> HTTP 400.
-    """
     try:
-        order = service.change_status(order_id, request.status)
-        print(f"[{SERVICE_NAME}] Order {order.order_number} status -> {request.status}")
-        return order
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        return command_bus.dispatch(
+            ChangeStatusCommand(order_id=order_id, new_status=request.status, reason=request.reason)
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @app.post("/orders/{order_id}/items", status_code=201)
 def add_item_to_order(
     order_id: int,
     request: OrderItemCreateRequest,
-    service: OrderApplicationService = Depends(get_order_service)
+    command_bus: CommandBus = Depends(get_command_bus),
 ):
-    """
-    Добавить позицию в заказ.
-    
-    Бизнес-правило: можно добавлять только в статусах PENDING/CONFIRMED.
-    Проверка выполняется в Domain Entity.
-    """
     try:
-        dto = AddItemDTO(
-            product_id=request.product_id,
-            product_name=request.product_name,
-            product_sku=request.product_sku,
-            quantity=request.quantity,
-            unit_price=request.unit_price
+        return command_bus.dispatch(
+            AddItemCommand(
+                order_id=order_id,
+                product_id=request.product_id,
+                product_name=request.product_name,
+                product_sku=request.product_sku,
+                quantity=request.quantity,
+                unit_price=request.unit_price,
+            )
         )
-        return service.add_item(order_id, dto)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-@app.delete("/orders/{order_id}/items/{product_id}")
-def remove_item_from_order(
-    order_id: int,
-    product_id: int,
-    service: OrderApplicationService = Depends(get_order_service)
-):
-    """Удалить позицию из заказа"""
-    try:
-        return service.remove_item(order_id, product_id)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-@app.post("/orders/{order_id}/confirm")
-def confirm_order(
-    order_id: int,
-    service: OrderApplicationService = Depends(get_order_service)
-):
-    """Подтвердить заказ (PENDING -> CONFIRMED)"""
-    try:
-        return service.confirm_order(order_id)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @app.post("/orders/{order_id}/cancel")
 def cancel_order(
     order_id: int,
     reason: Optional[str] = None,
-    service: OrderApplicationService = Depends(get_order_service)
+    command_bus: CommandBus = Depends(get_command_bus),
 ):
-    """Отменить заказ"""
     try:
-        return service.cancel_order(order_id, reason)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        return command_bus.dispatch(CancelOrderCommand(order_id=order_id, reason=reason))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/orders/{order_id}/confirm")
+def confirm_order(
+    order_id: int,
+    command_bus: CommandBus = Depends(get_command_bus),
+):
+    try:
+        return command_bus.dispatch(ChangeStatusCommand(order_id=order_id, new_status="confirmed"))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.delete("/orders/{order_id}/items/{product_id}")
+def remove_item_from_order(
+    order_id: int,
+    product_id: int,
+    service: OrderApplicationService = Depends(get_order_service),
+):
+    try:
+        return service.remove_item(order_id, product_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @app.delete("/orders/{order_id}", status_code=204)
 def delete_order(
     order_id: int,
-    service: OrderApplicationService = Depends(get_order_service)
+    service: OrderApplicationService = Depends(get_order_service),
 ):
-    """Удалить заказ"""
     if not service.delete_order(order_id):
         raise HTTPException(status_code=404, detail="Order not found")
 
 
 # =============================================================================
-# INTERNAL API (для других микросервисов)
+# INTERNAL API
 # =============================================================================
 
 @app.patch("/internal/orders/{order_id}/status")
@@ -504,57 +395,50 @@ def update_order_status_internal(
     order_id: int,
     request: StatusUpdateRequest,
     _: bool = Depends(verify_internal_key),
-    service: OrderApplicationService = Depends(get_order_service)
+    command_bus: CommandBus = Depends(get_command_bus),
 ):
-    """
-    Обновление статуса (Internal API).
-    
-    Используется Picking Service и Logistics Service.
-    """
     try:
-        order = service.change_status(order_id, request.status)
+        command_bus.dispatch(
+            ChangeStatusCommand(order_id=order_id, new_status=request.status, reason=request.reason)
+        )
         return {"status": "updated", "order_id": order_id, "new_status": request.status}
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @app.get("/internal/orders/{order_id}")
 def get_order_internal(
     order_id: int,
     _: bool = Depends(verify_internal_key),
-    service: OrderApplicationService = Depends(get_order_service)
+    query_bus: QueryBus = Depends(get_query_bus),
 ):
-    """Получить заказ (Internal API)"""
-    order = service.get_order(order_id)
-    if not order:
+    result = query_bus.ask(GetOrderQuery(order_id=order_id))
+    if not result:
         raise HTTPException(status_code=404, detail="Order not found")
-    return order
+
+    return result
 
 
 # =============================================================================
 # INTER-SERVICE COMMUNICATION
 # =============================================================================
 async def notify_picking_service(order_id: int, order_number: str, priority: str):
-    """Уведомление Picking Service о новом заказе"""
     import httpx
-    
+
+    picking_url = os.getenv("PICKING_SERVICE_URL", "http://localhost:8005")
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(
-                "http://localhost:8004/internal/tasks",
-                json={
-                    "order_id": order_id,
-                    "order_number": order_number,
-                    "priority": priority
-                },
-                headers={"X-Internal-Key": INTERNAL_API_KEY}
+                f"{picking_url}/internal/tasks",
+                json={"order_id": order_id, "order_number": order_number, "priority": priority},
+                headers={"X-Internal-Key": INTERNAL_API_KEY},
             )
             if response.status_code == 201:
-                print(f"[{SERVICE_NAME}] Task created in Picking Service")
+                print(f"[{SERVICE_NAME}] Picking task created for order {order_number}")
             else:
                 print(f"[{SERVICE_NAME}] Picking notification failed: {response.status_code}")
-    except Exception as e:
-        print(f"[{SERVICE_NAME}] Error notifying Picking: {e}")
+    except Exception as exc:
+        print(f"[{SERVICE_NAME}] Error notifying Picking: {exc}")
 
 
 # =============================================================================
@@ -562,4 +446,5 @@ async def notify_picking_service(order_id: int, order_number: str, priority: str
 # =============================================================================
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=SERVICE_PORT)

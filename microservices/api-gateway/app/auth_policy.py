@@ -7,6 +7,7 @@ from typing import Optional
 # (method, path regex, allowed roles). None = any authenticated user.
 _ROUTE_RULES: list[tuple[str, re.Pattern[str], Optional[set[str]]]] = [
     ("POST", re.compile(r"^/api/products/?$"), {"admin", "manager"}),
+    ("PATCH", re.compile(r"^/api/products/\d+/?$"), {"admin", "manager", "picker"}),
     ("DELETE", re.compile(r"^/api/products/\d+/?$"), {"admin", "manager"}),
     ("POST", re.compile(r"^/api/orders/?$"), {"admin", "manager"}),
     ("PATCH", re.compile(r"^/api/orders/\d+/status/?$"), {"admin", "manager", "picker"}),

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Локальный запуск всех микросервисов WMS без Docker.
-# Один раз: ./bootstrap_local.sh  (нужен Python 3.11 или 3.12; на 3.14 старые pydantic не ставятся)
+# Один раз: ./bootstrap_local.sh  (venv + .env.local с секретами)
 
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
@@ -8,11 +8,44 @@ cd "$ROOT"
 
 VENV_BIN="${ROOT}/venv/bin"
 if [[ ! -x "${VENV_BIN}/uvicorn" ]]; then
-  echo "Нет venv или uvicorn. Создайте окружение и установите зависимости (см. комментарий в начале скрипта)."
+  echo "Нет venv или uvicorn. Запустите: ./bootstrap_local.sh"
   exit 1
 fi
 
+ENV_FILE="${ROOT}/.env.local"
+if [[ ! -f "$ENV_FILE" ]]; then
+  echo "Нет ${ENV_FILE}. Запустите: ./bootstrap_local.sh"
+  exit 1
+fi
+set -a
+# shellcheck disable=SC1090
+source "$ENV_FILE"
+set +a
+
+for var in SECRET_KEY INTERNAL_API_KEY REDIS_URL; do
+  if [[ -z "${!var:-}" ]]; then
+    echo "В ${ENV_FILE} не задан ${var}."
+    exit 1
+  fi
+done
+
 export PATH="${VENV_BIN}:$PATH"
+
+if command -v redis-cli &>/dev/null; then
+  if ! redis-cli -u "$REDIS_URL" ping &>/dev/null; then
+    echo "Redis недоступен по адресу ${REDIS_URL}."
+    echo "Запустите Redis: brew install redis && brew services start redis"
+    exit 1
+  fi
+  echo "Redis: OK ($REDIS_URL)"
+else
+  echo "redis-cli не найден — проверяю подключение через Python..."
+  ./venv/bin/python -c "from redis import from_url; from_url('${REDIS_URL}').ping()" || {
+    echo "Redis недоступен. Установите: brew install redis && brew services start redis"
+    exit 1
+  }
+  echo "Redis: OK ($REDIS_URL)"
+fi
 
 cleanup() {
   echo ""
